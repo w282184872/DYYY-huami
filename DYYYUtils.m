@@ -917,6 +917,11 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         return;
     }
 
+    // 保留按钮、滑块等控件的自身背景，避免清理透明层时破坏交互控件外观。
+    if ([view isKindOfClass:[UIControl class]]) {
+        return;
+    }
+
     BOOL isListContainer = [view isKindOfClass:[UICollectionView class]] || [view isKindOfClass:[UITableView class]];
     BOOL isScrollContainer = [view isKindOfClass:[UIScrollView class]];
     if (depth <= 4 || isScrollContainer) {
