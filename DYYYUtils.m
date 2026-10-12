@@ -381,6 +381,8 @@ static BOOL DYYYUtilsWriteStaticImageToGIF(UIImage *image, NSURL *gifURL) {
 @interface DYYYUtils ()
 + (NSString *)fallbackLocationFromIPAttribution:(AWEAwemeModel *)model;
 + (NSString *)displayLocationForGeoNamesError:(NSError *)error model:(AWEAwemeModel *)model;
++ (void)clearCommentPanelBackdropObstructionsInRootView:(UIView *)rootView keepingView:(UIView *)keepView;
++ (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth;
 @end
 
 @implementation DYYYUtils
@@ -868,6 +870,66 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     if (overlayView) {
         CGFloat alpha = isDarkMode ? 0.2 : 0.1;
         overlayView.backgroundColor = [UIColor colorWithWhite:(isDarkMode ? 0 : 1) alpha:alpha];
+    }
+}
+
++ (void)applyCommentPanelBlurToRootViewController:(UIViewController *)rootViewController transparency:(float)userTransparency {
+    if (!rootViewController || !rootViewController.view) {
+        return;
+    }
+
+    Class innerViewControllerClass = NSClassFromString(@"AWECommentPanelContainerSwiftImpl.CommentContainerInnerViewController");
+    UIViewController *innerViewController = [self findViewControllerOfClass:innerViewControllerClass inViewController:rootViewController];
+    UIView *blurHostView = innerViewController.view ?: rootViewController.view;
+
+    // 40.7.0 在评论面板与视频之间增加了 backgroundMaskView，先移除大面积遮挡，否则毛玻璃只会采样到黑色遮罩。
+    [self clearCommentPanelBackdropObstructionsInRootView:rootViewController.view keepingView:blurHostView];
+    [self applyBlurEffectToView:blurHostView transparency:userTransparency blurViewTag:999];
+    [self clearCommentBlurBackgroundsInView:blurHostView depth:0];
+}
+
++ (void)clearCommentPanelBackdropObstructionsInRootView:(UIView *)rootView keepingView:(UIView *)keepView {
+    if (!rootView) {
+        return;
+    }
+
+    rootView.opaque = NO;
+    CGFloat rootWidth = CGRectGetWidth(rootView.bounds);
+    CGFloat rootHeight = CGRectGetHeight(rootView.bounds);
+
+    for (UIView *subview in rootView.subviews) {
+        if ([subview isKindOfClass:[UIVisualEffectView class]] || subview == keepView || [subview isDescendantOfView:keepView]) {
+            continue;
+        }
+
+        CGRect frameInRoot = [subview convertRect:subview.bounds toView:rootView];
+        BOOL coversWidth = rootWidth <= 0 || CGRectGetWidth(frameInRoot) >= rootWidth * 0.85;
+        BOOL coversHeight = rootHeight <= 0 || CGRectGetHeight(frameInRoot) >= rootHeight * 0.15;
+        if (coversWidth && coversHeight) {
+            subview.backgroundColor = [UIColor clearColor];
+            subview.opaque = NO;
+        }
+    }
+}
+
++ (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth {
+    if (!view || [view isKindOfClass:[UIVisualEffectView class]]) {
+        return;
+    }
+
+    BOOL isListContainer = [view isKindOfClass:[UICollectionView class]] || [view isKindOfClass:[UITableView class]];
+    BOOL isScrollContainer = [view isKindOfClass:[UIScrollView class]];
+    if (depth <= 4 || isScrollContainer) {
+        view.backgroundColor = [UIColor clearColor];
+        view.opaque = NO;
+    }
+
+    if (isListContainer || depth >= 5) {
+        return;
+    }
+
+    for (UIView *subview in view.subviews) {
+        [self clearCommentBlurBackgroundsInView:subview depth:depth + 1];
     }
 }
 

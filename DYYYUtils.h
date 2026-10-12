@@ -75,6 +75,13 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)clearBackgroundRecursivelyInView:(UIView *)view;
 
 /**
+ * @brief 为抖音评论区根控制器应用毛玻璃效果（适配 40.7.0 新的背景遮罩与 Swift 包装层）。
+ * @param rootViewController 评论区根控制器（AWECommentContainerViewController）。
+ * @param userTransparency 用户设置的毛玻璃透明度。
+ */
++ (void)applyCommentPanelBlurToRootViewController:(UIViewController *)rootViewController transparency:(float)userTransparency;
+
+/**
  * 显示提示信息
  * @param text 要显示的文本
  */

@@ -6981,6 +6981,12 @@ static Class tabBarButtonClass = nil;
     if (!DYYYGetBool(@"DYYYEnableCommentBlur"))
         return;
 
+    float commentBlurTransparency = [[[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYCommentBlurTransparent"] floatValue];
+    if (commentBlurTransparency <= 0 || commentBlurTransparency > 1) {
+        commentBlurTransparency = 0.8;
+    }
+    [DYYYUtils applyCommentPanelBlurToRootViewController:self transparency:commentBlurTransparency];
+
     Class containerViewClass = NSClassFromString(@"AWECommentInputViewSwiftImpl.CommentInputContainerView");
     NSArray<UIView *> *containerViews = [DYYYUtils findAllSubviewsOfClass:containerViewClass inContainer:self.view];
     for (UIView *containerView in containerViews) {
