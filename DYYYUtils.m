@@ -384,6 +384,7 @@ static BOOL DYYYUtilsWriteStaticImageToGIF(UIImage *image, NSURL *gifURL) {
 @interface DYYYUtils ()
 + (NSString *)fallbackLocationFromIPAttribution:(AWEAwemeModel *)model;
 + (NSString *)displayLocationForGeoNamesError:(NSError *)error model:(AWEAwemeModel *)model;
++ (void)clearCommentPanelBackdropObstructionsInRootView:(UIView *)rootView keepingView:(UIView *)keepView;
 + (void)clearCommentPanelBackgroundForView:(UIView *)view;
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth;
 @end
@@ -906,30 +907,13 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
 }
 
 + (BOOL)shouldClearCommentBlurBackgroundsForView:(UIView *)view {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    if (!view || ![defaults boolForKey:@"DYYYEnableCommentBlur"]) {
+    if (!view || ![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableCommentBlur"]) {
         return NO;
     }
 
     NSString *className = NSStringFromClass([view class]);
-    BOOL isInsideCommentPanel = NO;
-    for (UIResponder *responder = view; responder; responder = responder.nextResponder) {
-        NSString *responderClassName = NSStringFromClass([responder class]);
-        if ([responderClassName containsString:@"AWECommentContainerViewController"] ||
-            [responderClassName containsString:@"AWECommentPanelContainerSwiftImpl"]) {
-            isInsideCommentPanel = YES;
-            break;
-        }
-    }
-
-    if (isInsideCommentPanel && [self commentBlurTransparencyPercent] >= 100) {
-        return YES;
-    }
-
     BOOL isCommentPanelText = [className containsString:@"AWECommentPanelListSwiftImpl"] &&
-                              ([className containsString:@"Label"] ||
-                               [className containsString:@"Tag"] ||
-                               [className containsString:@"Fold"]);
+                              ([className containsString:@"Label"] || [className containsString:@"Fold"]);
     BOOL isCommentInputSurface = [className containsString:@"AWEComment"] &&
                                  ([className containsString:@"InputBackgroundView"] ||
                                   [className containsString:@"CommentInputTextView"] ||
@@ -937,17 +921,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
                                   [className containsString:@"InputContainerView"]);
     BOOL isCommentBizLabel = [className containsString:@"AWECommentSwiftBizUI"] &&
                              [className containsString:@"Label"];
-    BOOL isCommentBackgroundSurface = (isInsideCommentPanel && [className containsString:@"AWEBaseListSectionBackgroundView"]) ||
-                                      ([className containsString:@"Comment"] &&
-                                       ([className containsString:@"BackgroundView"] ||
-                                        [className containsString:@"MaskView"] ||
-                                        [className containsString:@"OverlayView"] ||
-                                        [className containsString:@"DimmingView"]));
-    BOOL isCommentLabel = isInsideCommentPanel &&
-                          ([view isKindOfClass:[UILabel class]] ||
-                           [className containsString:@"Label"] ||
-                           [className containsString:@"Tag"]);
-    return isCommentLabel || isCommentPanelText || isCommentInputSurface || isCommentBizLabel || isCommentBackgroundSurface;
+    return isCommentPanelText || isCommentInputSurface || isCommentBizLabel;
 }
 
 + (NSAttributedString *)commentBlurCleanedAttributedText:(NSAttributedString *)attributedText forView:(UIView *)view {
@@ -1000,8 +974,8 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
     [self clearCommentPanelBackgroundForView:topLevelPanelView];
 
-    // 40.7.0 会在不同层级重建 section、mask 和 cell 背景，统一清理整棵评论区，避免低透明度时采样到黑底。
-    [self clearCommentBlurBackgroundsInView:rootView];
+    // 40.7.0 在评论面板与视频之间增加了 backgroundMaskView，先移除大面积遮挡，否则毛玻璃只会采样到黑色遮罩。
+    [self clearCommentPanelBackdropObstructionsInRootView:rootView keepingView:topLevelPanelView];
 
     UIVisualEffectView *blurView = nil;
     for (UIView *subview in rootView.subviews) {
@@ -1053,7 +1027,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         tintView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [blurView.contentView addSubview:tintView];
     }
-    CGFloat tintVisibility = 1.0 - normalizedTransparency;
+    CGFloat tintVisibility = pow(MAX(0.0, 1.0 - normalizedTransparency), 1.5);
     tintView.backgroundColor = isDarkMode ? [UIColor blackColor] : [UIColor whiteColor];
     tintView.alpha = tintVisibility * (isDarkMode ? 0.55 : 0.65);
 
@@ -1068,6 +1042,28 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
     blurView.frame = [panelView convertRect:panelView.bounds toView:rootView];
 
+    [self clearCommentBlurBackgroundsInView:panelView depth:0];
+}
+
++ (void)clearCommentPanelBackdropObstructionsInRootView:(UIView *)rootView keepingView:(UIView *)keepView {
+    if (!rootView) {
+        return;
+    }
+
+    rootView.opaque = NO;
+
+    for (UIView *subview in rootView.subviews) {
+        if (subview.tag == kDYYYCommentPanelBlurTag || subview == keepView) {
+            continue;
+        }
+
+        subview.backgroundColor = [UIColor clearColor];
+        subview.opaque = NO;
+        subview.layer.backgroundColor = [UIColor clearColor].CGColor;
+        if ([subview isKindOfClass:[UIVisualEffectView class]]) {
+            ((UIVisualEffectView *)subview).effect = nil;
+        }
+    }
 }
 
 + (void)clearCommentPanelBackgroundForView:(UIView *)view {
@@ -1075,9 +1071,6 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         return;
     }
 
-    if ([view isKindOfClass:[UIVisualEffectView class]] && view.tag != kDYYYCommentPanelBlurTag) {
-        ((UIVisualEffectView *)view).effect = nil;
-    }
     view.backgroundColor = [UIColor clearColor];
     view.opaque = NO;
     view.layer.backgroundColor = [UIColor clearColor].CGColor;

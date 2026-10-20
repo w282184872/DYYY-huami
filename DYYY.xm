@@ -7342,6 +7342,11 @@ static Class tabBarButtonClass = nil;
     BOOL useFullHeight = [currentReferString isEqualToString:@"general_search"] || [currentReferString isEqualToString:@"search_result"] || [currentReferString isEqualToString:@"search_ecommerce"] ||
                          [currentReferString isEqualToString:@"close_friends_moment"] || [currentReferString isEqualToString:@"offline_mode"] || [currentReferString isEqualToString:@"challenge"] ||
                          [currentReferString isEqualToString:@"general_search_scan"] || currentReferString == nil;
+    if ([currentReferString containsString:@"personal_homepage"] ||
+        [currentReferString containsString:@"user_homepage"] ||
+        [currentReferString containsString:@"profile_video"]) {
+        useFullHeight = YES;
+    }
 
     if (!useFullHeight && [currentReferString isEqualToString:@"co_play_watch"]) {
         Class richContentVCClass = NSClassFromString(@"AWEFriendsImpl.RichContentNewListViewController");
