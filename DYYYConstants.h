@@ -4,7 +4,7 @@
 #define DYYY_NAME @"DYYY"
 #define DYYY_SETTINGS_NAME @"DYYY设置"
 
-#define DYYY_VERSION @"40.7.0-1"
+#define DYYY_VERSION @"40.7.0-2"
 
 #define DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION @"DYYYCommentBlurTransparencyDidChangeNotification"
 

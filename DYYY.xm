@@ -8872,10 +8872,9 @@ static NSString *const kHideRecentUsersKey = @"DYYYHideSidebarRecentUsers";
 %hook AWEStoryContainerCollectionView
 
 - (void)setFrame:(CGRect)frame {
-    if (DYYYGetBool(@"DYYYEnableCommentBlur")) {
-        if (frame.origin.y != 0) {
-            return;
-        }
+    // Profile video pagers also update origin.y, so only guard the pager while comments are visible.
+    if (DYYYGetBool(@"DYYYEnableCommentBlur") && dyyyCommentViewVisible && frame.origin.y != 0) {
+        return;
     }
     %orig(frame);
 }
