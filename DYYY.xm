@@ -8364,7 +8364,7 @@ static Class TagViewClass = nil;
                     if ([controller respondsToSelector:@selector(model)]) {
                         model = [controller valueForKey:@"model"];
                     }
-                    BOOL isLandscape = [model isKindOfClass:[AWEAwemeModel class]] && [model isShowLandscapeEntryView];
+                    BOOL isLandscape = [model respondsToSelector:@selector(isShowLandscapeEntryView)] && [model isShowLandscapeEntryView];
                     shouldFillScreen = !isLandscape;
                     break;
                 }
