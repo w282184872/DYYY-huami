@@ -1476,6 +1476,12 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @end
 
 @interface TTPlayerView : UIView
+@property(nonatomic, assign) NSInteger scaleType;
+@property(nonatomic, assign) NSInteger alignMode;
+@property(nonatomic, assign) double alignRatio;
+@property(nonatomic, readonly) CGRect videoAreaFrame;
+- (void)setScaleType:(NSInteger)scaleType;
+- (void)updateVideoFrame;
 @end
 
 // 开屏广告

@@ -8343,6 +8343,51 @@ static Class TagViewClass = nil;
 
 - (void)layoutSubviews {
     %orig;
+
+    static char kDYYYOriginalScaleTypeKey;
+    NSNumber *savedScaleType = objc_getAssociatedObject(self, &kDYYYOriginalScaleTypeKey);
+    BOOL shouldFillScreen = NO;
+
+    if (DYYYGetBool(@"DYYYEnableFullScreen") && self.window) {
+        CGRect screenBounds = [UIScreen mainScreen].bounds;
+        CGFloat width = CGRectGetWidth(self.bounds);
+        CGFloat height = CGRectGetHeight(self.bounds);
+
+        if (width + 0.5 >= CGRectGetWidth(screenBounds) && height >= CGRectGetHeight(screenBounds) * 0.85) {
+            UIViewController *controller = [DYYYUtils firstAvailableViewControllerFromView:self];
+            for (NSInteger depth = 0; controller && depth < 6; depth++) {
+                BOOL isPlaybackController = [controller isKindOfClass:%c(AWEPlayVideoViewController)] ||
+                                            [controller isKindOfClass:%c(AWEDPlayerFeedPlayerViewController)] ||
+                                            [controller isKindOfClass:%c(AWEDPlayerViewController_Merge)];
+                if (isPlaybackController) {
+                    id model = nil;
+                    if ([controller respondsToSelector:@selector(model)]) {
+                        model = [controller valueForKey:@"model"];
+                    }
+                    BOOL isLandscape = [model isKindOfClass:[AWEAwemeModel class]] && [model isShowLandscapeEntryView];
+                    shouldFillScreen = !isLandscape;
+                    break;
+                }
+                controller = controller.parentViewController;
+            }
+        }
+    }
+
+    if (shouldFillScreen) {
+        if (!savedScaleType) {
+            objc_setAssociatedObject(self, &kDYYYOriginalScaleTypeKey, @(self.scaleType), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if (self.scaleType != 1) {
+            [self setScaleType:1];
+        }
+    } else if (savedScaleType) {
+        NSInteger originalScaleType = savedScaleType.integerValue;
+        if (self.scaleType != originalScaleType) {
+            [self setScaleType:originalScaleType];
+        }
+        objc_setAssociatedObject(self, &kDYYYOriginalScaleTypeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
     UIView *parent = self.superview;
     if (parent) {
         parent.backgroundColor = self.backgroundColor;
