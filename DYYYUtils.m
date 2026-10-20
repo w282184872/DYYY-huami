@@ -31,6 +31,8 @@
 
 static const void *kLabelColorStateKey = &kLabelColorStateKey;
 static const NSTimeInterval kDYYYUtilsDefaultFrameDelay = 0.1f;
+static const NSInteger kDYYYCommentPanelBlurTag = 0xD99901;
+static const NSInteger kDYYYCommentPanelBlurTintTag = 0xD99902;
 
 static NSString *DYYYRuntimeLogFilePath(void) {
     static NSString *logPath = nil;
@@ -382,6 +384,7 @@ static BOOL DYYYUtilsWriteStaticImageToGIF(UIImage *image, NSURL *gifURL) {
 + (NSString *)fallbackLocationFromIPAttribution:(AWEAwemeModel *)model;
 + (NSString *)displayLocationForGeoNamesError:(NSError *)error model:(AWEAwemeModel *)model;
 + (void)clearCommentPanelBackdropObstructionsInRootView:(UIView *)rootView keepingView:(UIView *)keepView;
++ (void)clearCommentPanelBackgroundForView:(UIView *)view;
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth;
 @end
 
@@ -878,14 +881,83 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         return;
     }
 
+    UIView *rootView = rootViewController.view;
     Class innerViewControllerClass = NSClassFromString(@"AWECommentPanelContainerSwiftImpl.CommentContainerInnerViewController");
     UIViewController *innerViewController = [self findViewControllerOfClass:innerViewControllerClass inViewController:rootViewController];
-    UIView *blurHostView = innerViewController.view ?: rootViewController.view;
+    UIView *panelView = innerViewController.view;
+    if (!panelView || ![panelView isDescendantOfView:rootView]) {
+        return;
+    }
+
+    rootView.backgroundColor = [UIColor clearColor];
+    rootView.opaque = NO;
+    rootView.layer.backgroundColor = [UIColor clearColor].CGColor;
+
+    UIView *topLevelPanelView = panelView;
+    while (topLevelPanelView.superview && topLevelPanelView.superview != rootView) {
+        [self clearCommentPanelBackgroundForView:topLevelPanelView];
+        topLevelPanelView = topLevelPanelView.superview;
+    }
+    [self clearCommentPanelBackgroundForView:topLevelPanelView];
 
     // 40.7.0 在评论面板与视频之间增加了 backgroundMaskView，先移除大面积遮挡，否则毛玻璃只会采样到黑色遮罩。
-    [self clearCommentPanelBackdropObstructionsInRootView:rootViewController.view keepingView:blurHostView];
-    [self applyBlurEffectToView:blurHostView transparency:userTransparency blurViewTag:999];
-    [self clearCommentBlurBackgroundsInView:blurHostView depth:0];
+    [self clearCommentPanelBackdropObstructionsInRootView:rootView keepingView:topLevelPanelView];
+
+    UIVisualEffectView *blurView = nil;
+    for (UIView *subview in rootView.subviews) {
+        if ([subview isKindOfClass:[UIVisualEffectView class]] && subview.tag == kDYYYCommentPanelBlurTag) {
+            blurView = (UIVisualEffectView *)subview;
+            break;
+        }
+    }
+
+    BOOL isDarkMode = [self isDarkMode];
+    UIBlurEffectStyle blurStyle = isDarkMode ? UIBlurEffectStyleDark : UIBlurEffectStyleLight;
+    if (!blurView) {
+        blurView = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:blurStyle]];
+        blurView.tag = kDYYYCommentPanelBlurTag;
+        blurView.userInteractionEnabled = NO;
+    } else if (!blurView.effect) {
+        blurView.effect = [UIBlurEffect effectWithStyle:blurStyle];
+    }
+
+    // UIVisualEffectView 的 alpha 必须保持 1，否则系统会降级模糊采样。
+    blurView.alpha = 1.0;
+    blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    blurView.layer.cornerRadius = panelView.layer.cornerRadius;
+    blurView.layer.maskedCorners = panelView.layer.maskedCorners;
+    blurView.layer.cornerCurve = panelView.layer.cornerCurve;
+    blurView.clipsToBounds = panelView.layer.cornerRadius > 0;
+
+    UIView *tintView = nil;
+    for (UIView *subview in blurView.contentView.subviews) {
+        if (subview.tag == kDYYYCommentPanelBlurTintTag) {
+            tintView = subview;
+            break;
+        }
+    }
+    if (!tintView) {
+        tintView = [[UIView alloc] initWithFrame:blurView.contentView.bounds];
+        tintView.tag = kDYYYCommentPanelBlurTintTag;
+        tintView.userInteractionEnabled = NO;
+        tintView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [blurView.contentView addSubview:tintView];
+    }
+    tintView.backgroundColor = isDarkMode ? [UIColor colorWithWhite:0 alpha:0.2] : [UIColor colorWithWhite:1 alpha:0.1];
+    tintView.alpha = MIN(MAX(userTransparency, 0.0), 1.0);
+
+    NSArray<UIView *> *rootSubviews = rootView.subviews;
+    NSUInteger blurIndex = [rootSubviews indexOfObjectIdenticalTo:blurView];
+    NSUInteger panelIndex = [rootSubviews indexOfObjectIdenticalTo:topLevelPanelView];
+    BOOL isImmediatelyBehindPanel = blurIndex != NSNotFound && panelIndex != NSNotFound && blurIndex + 1 == panelIndex;
+    if (topLevelPanelView.superview == rootView && !isImmediatelyBehindPanel) {
+        [rootView insertSubview:blurView belowSubview:topLevelPanelView];
+    } else if (blurView.superview != rootView) {
+        [rootView insertSubview:blurView atIndex:0];
+    }
+    blurView.frame = [panelView convertRect:panelView.bounds toView:rootView];
+
+    [self clearCommentBlurBackgroundsInView:panelView depth:0];
 }
 
 + (void)clearCommentPanelBackdropObstructionsInRootView:(UIView *)rootView keepingView:(UIView *)keepView {
@@ -894,43 +966,58 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
 
     rootView.opaque = NO;
-    CGFloat rootWidth = CGRectGetWidth(rootView.bounds);
-    CGFloat rootHeight = CGRectGetHeight(rootView.bounds);
 
     for (UIView *subview in rootView.subviews) {
-        if ([subview isKindOfClass:[UIVisualEffectView class]] || subview == keepView || [subview isDescendantOfView:keepView]) {
+        if (subview.tag == kDYYYCommentPanelBlurTag || subview == keepView) {
             continue;
         }
 
-        CGRect frameInRoot = [subview convertRect:subview.bounds toView:rootView];
-        BOOL coversWidth = rootWidth <= 0 || CGRectGetWidth(frameInRoot) >= rootWidth * 0.85;
-        BOOL coversHeight = rootHeight <= 0 || CGRectGetHeight(frameInRoot) >= rootHeight * 0.15;
-        if (coversWidth && coversHeight) {
-            subview.backgroundColor = [UIColor clearColor];
-            subview.opaque = NO;
+        subview.backgroundColor = [UIColor clearColor];
+        subview.opaque = NO;
+        subview.layer.backgroundColor = [UIColor clearColor].CGColor;
+        if ([subview isKindOfClass:[UIVisualEffectView class]]) {
+            ((UIVisualEffectView *)subview).effect = nil;
         }
     }
 }
 
++ (void)clearCommentPanelBackgroundForView:(UIView *)view {
+    if (!view || [view isKindOfClass:[UIControl class]]) {
+        return;
+    }
+
+    view.backgroundColor = [UIColor clearColor];
+    view.opaque = NO;
+    view.layer.backgroundColor = [UIColor clearColor].CGColor;
+}
+
++ (void)clearCommentBlurBackgroundsInView:(UIView *)view {
+    [self clearCommentBlurBackgroundsInView:view depth:0];
+}
+
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth {
-    if (!view || [view isKindOfClass:[UIVisualEffectView class]]) {
+    if (!view || depth > 20 || [view isKindOfClass:[UIVisualEffectView class]]) {
         return;
     }
 
-    // 保留按钮、滑块等控件的自身背景，避免清理透明层时破坏交互控件外观。
-    if ([view isKindOfClass:[UIControl class]]) {
-        return;
+    BOOL preservesOwnBackground = [view isKindOfClass:[UIControl class]] ||
+                                  [view isKindOfClass:[UIImageView class]] ||
+                                  [view isKindOfClass:[UITextField class]] ||
+                                  [view isKindOfClass:[UITextView class]];
+    if (!preservesOwnBackground) {
+        [self clearCommentPanelBackgroundForView:view];
     }
 
-    BOOL isListContainer = [view isKindOfClass:[UICollectionView class]] || [view isKindOfClass:[UITableView class]];
-    BOOL isScrollContainer = [view isKindOfClass:[UIScrollView class]];
-    if (depth <= 4 || isScrollContainer) {
-        view.backgroundColor = [UIColor clearColor];
-        view.opaque = NO;
-    }
-
-    if (isListContainer || depth >= 5) {
-        return;
+    if ([view isKindOfClass:[UICollectionView class]]) {
+        UICollectionView *collectionView = (UICollectionView *)view;
+        collectionView.backgroundView.backgroundColor = [UIColor clearColor];
+    } else if ([view isKindOfClass:[UITableView class]]) {
+        UITableView *tableView = (UITableView *)view;
+        tableView.backgroundView.backgroundColor = [UIColor clearColor];
+    } else if ([view isKindOfClass:[UICollectionViewCell class]]) {
+        ((UICollectionViewCell *)view).contentView.backgroundColor = [UIColor clearColor];
+    } else if ([view isKindOfClass:[UITableViewCell class]]) {
+        ((UITableViewCell *)view).contentView.backgroundColor = [UIColor clearColor];
     }
 
     for (UIView *subview in view.subviews) {

@@ -82,6 +82,11 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)applyCommentPanelBlurToRootViewController:(UIViewController *)rootViewController transparency:(float)userTransparency;
 
 /**
+ * @brief 清理评论区列表及列表项的不透明背景，保留按钮、输入框和图片内容。
+ */
++ (void)clearCommentBlurBackgroundsInView:(UIView *)view;
+
+/**
  * 显示提示信息
  * @param text 要显示的文本
  */

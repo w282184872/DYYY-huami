@@ -1257,27 +1257,6 @@ static BOOL DYYYShouldHandleSpeedFeatures(void) {
 
 %end
 
-%hook AWEBaseListViewController
-- (void)viewDidLayoutSubviews {
-    %orig;
-    [self applyBlurEffectIfNeeded];
-}
-
-%new
-- (void)applyBlurEffectIfNeeded {
-    if (DYYYGetBool(@"DYYYEnableCommentBlur") && [self isKindOfClass:NSClassFromString(@"AWECommentPanelContainerSwiftImpl.CommentContainerInnerViewController")]) {
-        // 动态获取用户设置的透明度
-        float userTransparency = [[[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYCommentBlurTransparent"] floatValue];
-        if (userTransparency <= 0 || userTransparency > 1) {
-            userTransparency = 0.9;
-        }
-
-        // 应用毛玻璃效果
-        [DYYYUtils applyBlurEffectToView:self.view transparency:userTransparency blurViewTag:999];
-    }
-}
-%end
-
 %hook AWEFeedVideoButton
 - (id)touchUpInsideBlock {
     id r = %orig;
@@ -6950,6 +6929,7 @@ static Class tabBarButtonClass = nil;
     dyyyCommentViewVisible = YES;
     updateSpeedButtonVisibility();
     updateClearButtonVisibility();
+    [self dyyyApplyCommentBlurIfNeeded];
     NSString *transparentValue = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYTopBarTransparent"];
     if (transparentValue && transparentValue.length > 0) {
         CGFloat alphaValue = [transparentValue floatValue];
@@ -6978,63 +6958,20 @@ static Class tabBarButtonClass = nil;
 - (void)viewDidLayoutSubviews {
     %orig;
 
-    if (!DYYYGetBool(@"DYYYEnableCommentBlur"))
+    [self dyyyApplyCommentBlurIfNeeded];
+}
+
+%new
+- (void)dyyyApplyCommentBlurIfNeeded {
+    if (!DYYYGetBool(@"DYYYEnableCommentBlur")) {
         return;
+    }
 
     float commentBlurTransparency = [[[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYCommentBlurTransparent"] floatValue];
     if (commentBlurTransparency <= 0 || commentBlurTransparency > 1) {
         commentBlurTransparency = 0.8;
     }
     [DYYYUtils applyCommentPanelBlurToRootViewController:self transparency:commentBlurTransparency];
-
-    Class containerViewClass = NSClassFromString(@"AWECommentInputViewSwiftImpl.CommentInputContainerView");
-    NSArray<UIView *> *containerViews = [DYYYUtils findAllSubviewsOfClass:containerViewClass inContainer:self.view];
-    for (UIView *containerView in containerViews) {
-        for (UIView *subview in containerView.subviews) {
-            if (subview.hidden == NO && subview.backgroundColor && CGColorGetAlpha(subview.backgroundColor.CGColor) == 1) {
-                float userTransparency = [[[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYCommentBlurTransparent"] floatValue];
-                if (userTransparency <= 0 || userTransparency > 1) {
-                    userTransparency = 0.8;
-                }
-                [DYYYUtils applyBlurEffectToView:subview transparency:userTransparency blurViewTag:999];
-            }
-        }
-    }
-
-    Class middleContainerClass = NSClassFromString(@"AWECommentInputViewSwiftImpl.CommentInputViewMiddleContainer");
-    NSArray<UIView *> *middleContainers = [DYYYUtils findAllSubviewsOfClass:middleContainerClass inContainer:self.view];
-    for (UIView *middleContainer in middleContainers) {
-        BOOL containsDanmu = NO;
-        for (UIView *innerSubviewCheck in middleContainer.subviews) {
-            if ([innerSubviewCheck isKindOfClass:[UILabel class]] && [((UILabel *)innerSubviewCheck).text containsString:@"弹幕"]) {
-                containsDanmu = YES;
-                break;
-            }
-        }
-
-        if (containsDanmu) {
-            UIView *parentView = middleContainer.superview;
-            for (UIView *innerSubview in parentView.subviews) {
-                if ([innerSubview isKindOfClass:[UIView class]]) {
-                    if (innerSubview.subviews.count > 0) {
-                        innerSubview.subviews[0].hidden = YES;
-                    }
-
-                    UIView *whiteBackgroundView = [[UIView alloc] initWithFrame:innerSubview.bounds];
-                    whiteBackgroundView.backgroundColor = [UIColor whiteColor];
-                    whiteBackgroundView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-                    [innerSubview addSubview:whiteBackgroundView];
-                    break;
-                }
-            }
-        } else {
-            for (UIView *subview in middleContainer.subviews) {
-                if (subview.hidden == NO && subview.backgroundColor && CGColorGetAlpha(subview.backgroundColor.CGColor) == 1) {
-                    [DYYYUtils applyBlurEffectToView:subview transparency:0.2f blurViewTag:999];
-                }
-            }
-        }
-    }
 }
 
 %end
@@ -7065,6 +7002,7 @@ static Class tabBarButtonClass = nil;
     inset.bottom = commentOffset;
     collectionView.contentInset = inset;
     collectionView.scrollIndicatorInsets = inset;
+    [DYYYUtils clearCommentBlurBackgroundsInView:collectionView];
 }
 
 %end
