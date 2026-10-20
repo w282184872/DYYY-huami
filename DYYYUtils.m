@@ -876,6 +876,50 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
 }
 
++ (BOOL)shouldClearCommentBlurBackgroundsForView:(UIView *)view {
+    if (!view || ![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableCommentBlur"]) {
+        return NO;
+    }
+
+    NSString *className = NSStringFromClass([view class]);
+    BOOL isCommentPanelText = [className containsString:@"AWECommentPanelListSwiftImpl"] &&
+                              ([className containsString:@"Label"] || [className containsString:@"Fold"]);
+    BOOL isCommentInputSurface = [className containsString:@"AWEComment"] &&
+                                 ([className containsString:@"InputBackgroundView"] ||
+                                  [className containsString:@"CommentInputTextView"] ||
+                                  [className containsString:@"CommentInputContent"] ||
+                                  [className containsString:@"InputContainerView"]);
+    BOOL isCommentBizLabel = [className containsString:@"AWECommentSwiftBizUI"] &&
+                             [className containsString:@"Label"];
+    return isCommentPanelText || isCommentInputSurface || isCommentBizLabel;
+}
+
++ (NSAttributedString *)commentBlurCleanedAttributedText:(NSAttributedString *)attributedText forView:(UIView *)view {
+    if (attributedText.length == 0 || ![self shouldClearCommentBlurBackgroundsForView:view]) {
+        return attributedText;
+    }
+
+    __block BOOL hasBackgroundAttribute = NO;
+    [attributedText enumerateAttributesInRange:NSMakeRange(0, attributedText.length)
+                                       options:0
+                                    usingBlock:^(NSDictionary<NSAttributedStringKey, id> *attrs, NSRange range, BOOL *stop) {
+                                      if (attrs[NSBackgroundColorAttributeName] || attrs[@"YYTextBorder"] || attrs[@"YYTextBorderArray"]) {
+                                          hasBackgroundAttribute = YES;
+                                          *stop = YES;
+                                      }
+                                    }];
+    if (!hasBackgroundAttribute) {
+        return attributedText;
+    }
+
+    NSMutableAttributedString *cleanedText = [[NSMutableAttributedString alloc] initWithAttributedString:attributedText];
+    NSRange fullRange = NSMakeRange(0, cleanedText.length);
+    [cleanedText removeAttribute:NSBackgroundColorAttributeName range:fullRange];
+    [cleanedText removeAttribute:@"YYTextBorder" range:fullRange];
+    [cleanedText removeAttribute:@"YYTextBorderArray" range:fullRange];
+    return cleanedText;
+}
+
 + (void)applyCommentPanelBlurToRootViewController:(UIViewController *)rootViewController transparency:(float)userTransparency {
     if (!rootViewController || !rootViewController.view) {
         return;
@@ -943,8 +987,9 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         tintView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [blurView.contentView addSubview:tintView];
     }
-    tintView.backgroundColor = isDarkMode ? [UIColor colorWithWhite:0 alpha:0.2] : [UIColor colorWithWhite:1 alpha:0.1];
-    tintView.alpha = MIN(MAX(userTransparency, 0.0), 1.0);
+    CGFloat normalizedTransparency = MIN(MAX(userTransparency, 0.0), 1.0);
+    tintView.backgroundColor = isDarkMode ? [UIColor blackColor] : [UIColor whiteColor];
+    tintView.alpha = (1.0 - normalizedTransparency) * (isDarkMode ? 0.55 : 0.65);
 
     NSArray<UIView *> *rootSubviews = rootView.subviews;
     NSUInteger blurIndex = [rootSubviews indexOfObjectIdenticalTo:blurView];
@@ -982,7 +1027,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
 }
 
 + (void)clearCommentPanelBackgroundForView:(UIView *)view {
-    if (!view || [view isKindOfClass:[UIControl class]]) {
+    if (!view) {
         return;
     }
 
@@ -1003,16 +1048,14 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
 }
 
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth {
-    if (!view || depth > 20 || [view isKindOfClass:[UIVisualEffectView class]]) {
+    if (!view || depth > 20) {
         return;
     }
 
-    BOOL isTextField = [view isKindOfClass:[UITextField class]];
-    BOOL preservesOwnBackground = ([view isKindOfClass:[UIControl class]] && !isTextField) ||
-                                  [view isKindOfClass:[UIImageView class]];
-    if (!preservesOwnBackground) {
-        [self clearCommentPanelBackgroundForView:view];
+    if ([view isKindOfClass:[UIVisualEffectView class]] && view.tag != kDYYYCommentPanelBlurTag) {
+        ((UIVisualEffectView *)view).effect = nil;
     }
+    [self clearCommentPanelBackgroundForView:view];
 
     if ([view isKindOfClass:[UICollectionView class]]) {
         UICollectionView *collectionView = (UICollectionView *)view;

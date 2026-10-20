@@ -582,6 +582,13 @@ static BOOL DYYYShouldHandleSpeedFeatures(void) {
 %hook AWERLVirtualLabel
 
 - (void)setText:(NSString *)text {
+    if ([DYYYUtils shouldClearCommentBlurBackgroundsForView:(UIView *)self]) {
+        UIView *labelView = (UIView *)self;
+        labelView.backgroundColor = [UIColor clearColor];
+        labelView.layer.backgroundColor = [UIColor clearColor].CGColor;
+        labelView.opaque = NO;
+    }
+
     if (!DYYYGetBool(@"DYYYCommentExactTime") || !text || text.length == 0) {
         %orig(text);
         return;
@@ -698,12 +705,13 @@ static BOOL DYYYShouldHandleSpeedFeatures(void) {
 
 // 1. Hook 富文本赋值方法 (核心)
 - (void)setAttributedText:(NSAttributedString *)attributedText {
-    if (!DYYYGetBool(@"DYYYCommentExactTime") || !attributedText || attributedText.length == 0) {
-        %orig(attributedText);
+    NSAttributedString *cleanedText = [DYYYUtils commentBlurCleanedAttributedText:attributedText forView:(UIView *)self];
+    if (!DYYYGetBool(@"DYYYCommentExactTime") || !cleanedText || cleanedText.length == 0) {
+        %orig(cleanedText);
         return;
     }
 
-    NSString *plainText = [attributedText string];
+    NSString *plainText = [cleanedText string];
 
     NSError *error = nil;
     NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"^(\\d{10,13})" options:0 error:&error];
@@ -722,13 +730,22 @@ static BOOL DYYYShouldHandleSpeedFeatures(void) {
         [formatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
         NSString *formattedDate = [formatter stringFromDate:date];
         
-        NSMutableAttributedString *newAttrStr = [attributedText mutableCopy];
+        NSMutableAttributedString *newAttrStr = [cleanedText mutableCopy];
         [newAttrStr replaceCharactersInRange:[match rangeAtIndex:1] withString:formattedDate];
         
         %orig(newAttrStr);
     } else {
-        %orig(attributedText);
+        %orig(cleanedText);
     }
+}
+
+%end
+
+%hook UILabel
+
+- (void)setAttributedText:(NSAttributedString *)attributedText {
+    NSAttributedString *cleanedText = [DYYYUtils commentBlurCleanedAttributedText:attributedText forView:(UIView *)self];
+    %orig(cleanedText);
 }
 
 %end
@@ -6905,6 +6922,19 @@ static Class tabBarButtonClass = nil;
 }
 %end
 
+%hook CALayer
+
+- (void)setBackgroundColor:(CGColorRef)backgroundColor {
+    id delegate = self.delegate;
+    if ([delegate isKindOfClass:[UIView class]] && [DYYYUtils shouldClearCommentBlurBackgroundsForView:delegate]) {
+        %orig([UIColor clearColor].CGColor);
+        return;
+    }
+    %orig(backgroundColor);
+}
+
+%end
+
 %hook AWECommentInputBackgroundView
 - (void)layoutSubviews {
     %orig;
@@ -6918,6 +6948,9 @@ static Class tabBarButtonClass = nil;
         self.backgroundColor = [UIColor clearColor];
         self.layer.backgroundColor = [UIColor clearColor].CGColor;
         self.opaque = NO;
+        if ([self isKindOfClass:[UIVisualEffectView class]]) {
+            ((UIVisualEffectView *)self).effect = nil;
+        }
     }
 
     CGAffineTransform newTransform = CGAffineTransformMakeTranslation(0, originalTabBarHeight - gCurrentTabBarHeight);
@@ -6935,6 +6968,11 @@ static Class tabBarButtonClass = nil;
     dyyyCommentViewVisible = YES;
     updateSpeedButtonVisibility();
     updateClearButtonVisibility();
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(dyyyCommentBlurTransparencyDidChange)
+                                                 name:DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION
+                                               object:nil];
     [self dyyyApplyCommentBlurIfNeeded];
     NSString *transparentValue = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYTopBarTransparent"];
     if (transparentValue && transparentValue.length > 0) {
@@ -6959,6 +6997,7 @@ static Class tabBarButtonClass = nil;
     dyyyCommentViewVisible = NO;
     updateSpeedButtonVisibility();
     updateClearButtonVisibility();
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION object:nil];
 }
 
 - (void)viewDidLayoutSubviews {
@@ -6968,13 +7007,19 @@ static Class tabBarButtonClass = nil;
 }
 
 %new
+- (void)dyyyCommentBlurTransparencyDidChange {
+    [self dyyyApplyCommentBlurIfNeeded];
+}
+
+%new
 - (void)dyyyApplyCommentBlurIfNeeded {
     if (!DYYYGetBool(@"DYYYEnableCommentBlur")) {
         return;
     }
 
-    float commentBlurTransparency = [[[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYCommentBlurTransparent"] floatValue];
-    if (commentBlurTransparency <= 0 || commentBlurTransparency > 1) {
+    id savedTransparency = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYCommentBlurTransparent"];
+    float commentBlurTransparency = savedTransparency ? [savedTransparency floatValue] : 0.8;
+    if (!isfinite(commentBlurTransparency) || commentBlurTransparency < 0 || commentBlurTransparency > 1) {
         commentBlurTransparency = 0.8;
     }
     [DYYYUtils applyCommentPanelBlurToRootViewController:self transparency:commentBlurTransparency];
@@ -7047,19 +7092,9 @@ static Class tabBarButtonClass = nil;
         return;
     }
 
-    if (DYYYGetBool(@"DYYYEnableCommentBlur")) {
-        NSString *className = NSStringFromClass([self class]);
-        BOOL isCommentPanelText = [className containsString:@"AWECommentPanelListSwiftImpl"] &&
-                                  ([className containsString:@"Label"] || [className containsString:@"Fold"]);
-        BOOL isCommentInputSurface = [className containsString:@"AWEComment"] &&
-                                     ([className containsString:@"InputBackgroundView"] ||
-                                      [className containsString:@"CommentInputTextView"]);
-        BOOL isCommentBizLabel = [className containsString:@"AWECommentSwiftBizUI"] &&
-                                 [className containsString:@"Label"];
-        if (isCommentPanelText || isCommentInputSurface || isCommentBizLabel) {
-            %orig([UIColor clearColor]);
-            return;
-        }
+    if ([DYYYUtils shouldClearCommentBlurBackgroundsForView:self]) {
+        %orig([UIColor clearColor]);
+        return;
     }
 
     if (DYYYGetBool(@"DYYYEnableFullScreen")) {

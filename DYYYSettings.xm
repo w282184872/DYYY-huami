@@ -837,7 +837,7 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
             @"imageName" : @"ic_comment_outlined_20"},
           @{@"identifier" : @"DYYYCommentBlurTransparent",
             @"title" : @"毛玻璃透明度",
-            @"detail" : @"0-1小数",
+            @"detail" : @"0不透明 1全透明",
             @"cellType" : @26,
             @"imageName" : @"ic_eye_outlined_20"},
       ];

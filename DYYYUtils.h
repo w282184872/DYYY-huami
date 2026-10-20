@@ -82,6 +82,16 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)applyCommentPanelBlurToRootViewController:(UIViewController *)rootViewController transparency:(float)userTransparency;
 
 /**
+ * @brief 判断视图是否属于评论区文字或输入区域。
+ */
++ (BOOL)shouldClearCommentBlurBackgroundsForView:(UIView *)view;
+
+/**
+ * @brief 移除评论富文本携带的白色背景和 YYText 边框填充。
+ */
++ (NSAttributedString *)commentBlurCleanedAttributedText:(NSAttributedString *)attributedText forView:(UIView *)view;
+
+/**
  * @brief 清理评论区列表及列表项的不透明背景，保留按钮、输入框和图片内容。
  */
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view;
