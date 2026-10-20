@@ -80,11 +80,6 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSInteger)commentBlurTransparencyPercent;
 
 /**
- * @brief 判断视图是否位于个人主页控制器层级。
- */
-+ (BOOL)isUserProfileViewControllerInResponderChainOfView:(UIView *)view;
-
-/**
  * @brief 为抖音评论区根控制器应用毛玻璃效果（适配 40.7.0 新的背景遮罩与 Swift 包装层）。
  * @param rootViewController 评论区根控制器（AWECommentContainerViewController）。
  * @param userTransparency 用户设置的毛玻璃透明度。

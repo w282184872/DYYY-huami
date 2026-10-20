@@ -8307,42 +8307,6 @@ static Class TagViewClass = nil;
 
 %end
 
-%hook AWEStoryContainerCollectionView
-- (void)layoutSubviews {
-    %orig;
-    if ([self.subviews count] == 2)
-        return;
-
-    // 获取 enableEnterProfile 属性来判断是否是主页
-    id enableEnterProfile = [self valueForKey:@"enableEnterProfile"];
-    BOOL isHome = (enableEnterProfile != nil && [enableEnterProfile boolValue]);
-    BOOL isAuthorProfile = [DYYYUtils isUserProfileViewControllerInResponderChainOfView:self];
-
-    if (!isHome || isAuthorProfile)
-        return;
-
-    for (UIView *subview in self.subviews) {
-        if ([subview isKindOfClass:[UIView class]]) {
-            UIView *nextResponder = (UIView *)subview.nextResponder;
-
-            // 处理主页的情况
-            if ([nextResponder isKindOfClass:%c(AWEPlayInteractionViewController)]) {
-                UIViewController *awemeBaseViewController = [nextResponder valueForKey:@"awemeBaseViewController"];
-                if (![awemeBaseViewController isKindOfClass:%c(AWEFeedCellViewController)]) {
-                    continue;
-                }
-
-                CGRect frame = subview.frame;
-                if (DYYYGetBool(@"DYYYEnableFullScreen")) {
-                    frame.size.height = subview.superview.frame.size.height - gCurrentTabBarHeight;
-                    subview.frame = frame;
-                }
-            }
-        }
-    }
-}
-%end
-
 %hook AFDFastSpeedView
 - (void)layoutSubviews {
     %orig;
@@ -8520,20 +8484,6 @@ static Class TagViewClass = nil;
     } else {
         self.transform = CGAffineTransformIdentity;
     }
-}
-
-%end
-
-%hook AWEAwemeDetailTableView
-
-- (void)setFrame:(CGRect)frame {
-    if (DYYYGetBool(@"DYYYEnableFullScreen") && ![DYYYUtils isUserProfileViewControllerInResponderChainOfView:self]) {
-        CGFloat screenHeight = [UIScreen mainScreen].bounds.size.height;
-        if (frame.size.height > 0 && frame.size.height < screenHeight) {
-            frame.size.height = screenHeight;
-        }
-    }
-    %orig(frame);
 }
 
 %end
