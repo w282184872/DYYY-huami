@@ -4,9 +4,11 @@
 #define DYYY_NAME @"DYYY"
 #define DYYY_SETTINGS_NAME @"DYYY设置"
 
-#define DYYY_VERSION @"40.7.0-6"
+#define DYYY_VERSION @"40.7.0-7"
 
 #define DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION @"DYYYCommentBlurTransparencyDidChangeNotification"
+#define DYYY_COMMENT_BLUR_TRANSPARENCY_PERCENT_KEY @"DYYYCommentBlurTransparencyPercent"
+#define DYYY_COMMENT_BLUR_TRANSPARENCY_LEGACY_KEY @"DYYYCommentBlurTransparent"
 
 // 默认的远程 ABTest 配置地址
 #define DYYY_DEFAULT_ABTEST_URL @"https://github.com/Nathalie-Annis/AWEABTestDataPatch/releases/latest/download/ABTestDataPatch_A.json"

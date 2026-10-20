@@ -19,7 +19,8 @@
 // 设置用户默认设置
 + (void)setUserDefaults:(id)object forKey:(NSString *)key {
     [[NSUserDefaults standardUserDefaults] setObject:object forKey:key];
-    if ([key isEqualToString:@"DYYYCommentBlurTransparent"] ||
+    if ([key isEqualToString:DYYY_COMMENT_BLUR_TRANSPARENCY_PERCENT_KEY] ||
+        [key isEqualToString:DYYY_COMMENT_BLUR_TRANSPARENCY_LEGACY_KEY] ||
         [key isEqualToString:@"DYYYEnableCommentBlur"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
           [[NSNotificationCenter defaultCenter] postNotificationName:DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION object:nil];
@@ -77,7 +78,8 @@
           // ===== 条件依赖配置 =====
           // 一些设置项依赖于多个其他设置项的复杂条件
           @"conditionalDependencies" : @{
-              @"DYYYCommentBlurTransparent" : @{@"condition" : @"OR", @"settings" : @[ @"DYYYEnableCommentBlur", @"DYYYEnableNotificationTransparency" ]},
+              DYYY_COMMENT_BLUR_TRANSPARENCY_PERCENT_KEY : @{@"condition" : @"AND", @"settings" : @[ @"DYYYEnableCommentBlur" ]},
+              DYYY_COMMENT_BLUR_TRANSPARENCY_LEGACY_KEY : @{@"condition" : @"AND", @"settings" : @[ @"DYYYEnableNotificationTransparency" ]},
           },
 
           // ===== 冲突配置 =====
@@ -471,6 +473,9 @@ static NSArray *allSettingsViewControllers(void) {
     item.subTitle = dict[@"subTitle"];
 
     NSString *savedDetail = [[NSUserDefaults standardUserDefaults] objectForKey:item.identifier];
+    if ([item.identifier isEqualToString:DYYY_COMMENT_BLUR_TRANSPARENCY_PERCENT_KEY]) {
+        savedDetail = [NSString stringWithFormat:@"%ld", (long)[DYYYUtils commentBlurTransparencyPercent]];
+    }
     NSString *placeholder = dict[@"detail"];
     item.detail = savedDetail ?: @"";
 

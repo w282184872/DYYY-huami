@@ -7030,11 +7030,7 @@ static Class tabBarButtonClass = nil;
         return;
     }
 
-    id savedTransparency = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYCommentBlurTransparent"];
-    float commentBlurTransparency = savedTransparency ? [savedTransparency floatValue] : 0.8;
-    if (!isfinite(commentBlurTransparency) || commentBlurTransparency < 0 || commentBlurTransparency > 1) {
-        commentBlurTransparency = 0.8;
-    }
+    float commentBlurTransparency = [DYYYUtils commentBlurTransparencyPercent] / 100.0;
     [DYYYUtils applyCommentPanelBlurToRootViewController:self transparency:commentBlurTransparency];
 }
 
@@ -8320,8 +8316,9 @@ static Class TagViewClass = nil;
     // 获取 enableEnterProfile 属性来判断是否是主页
     id enableEnterProfile = [self valueForKey:@"enableEnterProfile"];
     BOOL isHome = (enableEnterProfile != nil && [enableEnterProfile boolValue]);
+    BOOL isAuthorProfile = [DYYYUtils isUserProfileViewControllerInResponderChainOfView:self];
 
-    if (!isHome)
+    if (!isHome || isAuthorProfile)
         return;
 
     for (UIView *subview in self.subviews) {
@@ -8530,12 +8527,10 @@ static Class TagViewClass = nil;
 %hook AWEAwemeDetailTableView
 
 - (void)setFrame:(CGRect)frame {
-    if (DYYYGetBool(@"DYYYEnableFullScreen")) {
+    if (DYYYGetBool(@"DYYYEnableFullScreen") && ![DYYYUtils isUserProfileViewControllerInResponderChainOfView:self]) {
         CGFloat screenHeight = [UIScreen mainScreen].bounds.size.height;
-
-        CGFloat remainder = fmod(frame.size.height, screenHeight);
-        if (remainder != 0) {
-            frame.size.height += (screenHeight - remainder);
+        if (frame.size.height > 0 && frame.size.height < screenHeight) {
+            frame.size.height = screenHeight;
         }
     }
     %orig(frame);

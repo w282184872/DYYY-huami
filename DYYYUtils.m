@@ -877,6 +877,57 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
 }
 
++ (NSInteger)commentBlurTransparencyPercent {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSString *savedPercent = [[[defaults objectForKey:DYYY_COMMENT_BLUR_TRANSPARENCY_PERCENT_KEY] description]
+        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if ([savedPercent hasSuffix:@"%"]) {
+        savedPercent = [[savedPercent substringToIndex:savedPercent.length - 1]
+            stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    }
+    NSScanner *percentScanner = [NSScanner scannerWithString:savedPercent ?: @""];
+    NSInteger percent = 80;
+    if ([percentScanner scanInteger:&percent] && percentScanner.isAtEnd) {
+        percent = MIN(MAX(percent, 0), 100);
+    } else {
+        NSString *legacyValue = [[defaults objectForKey:DYYY_COMMENT_BLUR_TRANSPARENCY_LEGACY_KEY] description];
+        NSScanner *legacyScanner = [NSScanner scannerWithString:legacyValue ?: @""];
+        double legacyTransparency = 0.8;
+        if ([legacyScanner scanDouble:&legacyTransparency] && legacyScanner.isAtEnd &&
+            isfinite(legacyTransparency) && legacyTransparency >= 0.0 && legacyTransparency <= 1.0) {
+            percent = (NSInteger)lround(legacyTransparency * 100.0);
+        }
+    }
+
+    NSString *normalizedValue = [NSString stringWithFormat:@"%ld", (long)percent];
+    if (![savedPercent isEqualToString:normalizedValue]) {
+        [defaults setObject:normalizedValue forKey:DYYY_COMMENT_BLUR_TRANSPARENCY_PERCENT_KEY];
+    }
+    return percent;
+}
+
++ (BOOL)isUserProfileViewControllerInResponderChainOfView:(UIView *)view {
+    for (UIResponder *responder = view; responder; responder = responder.nextResponder) {
+        NSString *className = NSStringFromClass([responder class]);
+        if ([className isEqualToString:@"AWEUserHomeViewControllerV2"] ||
+            [className isEqualToString:@"AWEUserDetailViewControllerV2"] ||
+            [className containsString:@"UserHomeViewController"] ||
+            [className containsString:@"UserDetailViewController"]) {
+            return YES;
+        }
+        if ([responder isKindOfClass:[UIViewController class]] &&
+            [responder respondsToSelector:@selector(referString)]) {
+            NSString *referString = [responder performSelector:NSSelectorFromString(@"referString")];
+            if ([referString containsString:@"personal_homepage"] ||
+                [referString containsString:@"user_homepage"] ||
+                [referString containsString:@"profile_video"]) {
+                return YES;
+            }
+        }
+    }
+    return NO;
+}
+
 + (BOOL)shouldClearCommentBlurBackgroundsForView:(UIView *)view {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     if (!view || ![defaults boolForKey:@"DYYYEnableCommentBlur"]) {
@@ -884,9 +935,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
 
     NSString *className = NSStringFromClass([view class]);
-    id transparencyValue = [defaults objectForKey:@"DYYYCommentBlurTransparent"];
-    float transparency = transparencyValue ? [transparencyValue floatValue] : 0.8;
-    if (isfinite(transparency) && transparency >= 0.9995) {
+    if ([self commentBlurTransparencyPercent] >= 100) {
         for (UIResponder *responder = view; responder; responder = responder.nextResponder) {
             NSString *responderClassName = NSStringFromClass([responder class]);
             if ([responderClassName containsString:@"AWECommentContainerViewController"] ||
@@ -978,7 +1027,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         blurView.effect = nil;
         blurView.hidden = YES;
         [blurView removeFromSuperview];
-        [self clearCommentBlurBackgroundsInView:panelView depth:0];
+        [self clearCommentBlurBackgroundsInView:rootView];
         return;
     }
 
@@ -1012,7 +1061,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         tintView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [blurView.contentView addSubview:tintView];
     }
-    CGFloat tintVisibility = pow(MAX(0.0, 1.0 - normalizedTransparency), 1.5);
+    CGFloat tintVisibility = 1.0 - normalizedTransparency;
     tintView.backgroundColor = isDarkMode ? [UIColor blackColor] : [UIColor whiteColor];
     tintView.alpha = tintVisibility * (isDarkMode ? 0.55 : 0.65);
 
@@ -1056,6 +1105,9 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         return;
     }
 
+    if ([view isKindOfClass:[UIVisualEffectView class]] && view.tag != kDYYYCommentPanelBlurTag) {
+        ((UIVisualEffectView *)view).effect = nil;
+    }
     view.backgroundColor = [UIColor clearColor];
     view.opaque = NO;
     view.layer.backgroundColor = [UIColor clearColor].CGColor;
