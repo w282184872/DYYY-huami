@@ -437,6 +437,7 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @end
 
 @interface AWECommentContainerViewController : UIViewController
+- (void)dyyyApplyCommentBlurIfNeeded;
 @end
 
 @interface AWECommentInputViewController : UIViewController
