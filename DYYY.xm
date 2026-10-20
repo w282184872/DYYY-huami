@@ -6935,6 +6935,19 @@ static Class tabBarButtonClass = nil;
 }
 %end
 
+%hook CALayer
+
+- (void)setBackgroundColor:(CGColorRef)backgroundColor {
+    id delegate = self.delegate;
+    if ([delegate isKindOfClass:[UIView class]] && [DYYYUtils shouldClearCommentBlurBackgroundsForView:delegate]) {
+        %orig([UIColor clearColor].CGColor);
+        return;
+    }
+    %orig(backgroundColor);
+}
+
+%end
+
 %hook AWECommentInputBackgroundView
 - (void)layoutSubviews {
     %orig;
@@ -6945,7 +6958,12 @@ static Class tabBarButtonClass = nil;
     }
 
     if (DYYYGetBool(@"DYYYEnableCommentBlur")) {
-        [DYYYUtils clearCommentBlurBackgroundsInView:self];
+        self.backgroundColor = [UIColor clearColor];
+        self.layer.backgroundColor = [UIColor clearColor].CGColor;
+        self.opaque = NO;
+        if ([self isKindOfClass:[UIVisualEffectView class]]) {
+            ((UIVisualEffectView *)self).effect = nil;
+        }
     }
 
     CGAffineTransform newTransform = CGAffineTransformMakeTranslation(0, originalTabBarHeight - gCurrentTabBarHeight);
@@ -6957,11 +6975,6 @@ static Class tabBarButtonClass = nil;
 %end
 
 %hook AWECommentContainerViewController
-
-- (void)viewWillAppear:(BOOL)animated {
-    %orig;
-    [self dyyyApplyCommentBlurIfNeeded];
-}
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
@@ -6998,7 +7011,6 @@ static Class tabBarButtonClass = nil;
     updateSpeedButtonVisibility();
     updateClearButtonVisibility();
     [[NSNotificationCenter defaultCenter] removeObserver:self name:DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION object:nil];
-    [DYYYUtils removeCommentPanelBlurFromRootViewController:self];
 }
 
 - (void)viewDidLayoutSubviews {
@@ -7015,7 +7027,6 @@ static Class tabBarButtonClass = nil;
 %new
 - (void)dyyyApplyCommentBlurIfNeeded {
     if (!DYYYGetBool(@"DYYYEnableCommentBlur")) {
-        [DYYYUtils removeCommentPanelBlurFromRootViewController:self];
         return;
     }
 
@@ -7057,6 +7068,7 @@ static Class tabBarButtonClass = nil;
         collectionView.contentInset = inset;
         collectionView.scrollIndicatorInsets = inset;
     }
+    [DYYYUtils clearCommentBlurBackgroundsInView:collectionView];
 }
 
 %end
@@ -7096,7 +7108,6 @@ static Class tabBarButtonClass = nil;
     }
 
     if ([DYYYUtils shouldClearCommentBlurBackgroundsForView:self]) {
-        [DYYYUtils captureCommentBlurBackgroundForView:self backgroundColor:backgroundColor];
         %orig([UIColor clearColor]);
         return;
     }
@@ -7116,13 +7127,7 @@ static Class tabBarButtonClass = nil;
 - (void)layoutSubviews {
     %orig;
 
-    BOOL enableFullScreen = DYYYGetBool(@"DYYYEnableFullScreen");
-    BOOL enableCommentBlur = DYYYGetBool(@"DYYYEnableCommentBlur");
-    if (!self.window || (!enableFullScreen && !enableCommentBlur)) {
-        return;
-    }
-
-    if (enableFullScreen) {
+    if (DYYYGetBool(@"DYYYEnableFullScreen")) {
         if (self.frame.size.height == originalTabBarHeight && originalTabBarHeight > 0) {
             UIViewController *vc = [DYYYUtils firstAvailableViewControllerFromView:self];
             if ([vc isKindOfClass:NSClassFromString(@"AWEMixVideoPanelDetailTableViewController")] || [vc isKindOfClass:NSClassFromString(@"AWECommentInputViewController")] ||
@@ -7132,8 +7137,7 @@ static Class tabBarButtonClass = nil;
         }
     }
 
-    BOOL shouldAdjustForCommentBlur = enableCommentBlur && dyyyCommentViewVisible;
-    if (enableFullScreen || shouldAdjustForCommentBlur) {
+    if (DYYYGetBool(@"DYYYEnableFullScreen") || DYYYGetBool(@"DYYYEnableCommentBlur")) {
         UIViewController *vc = [DYYYUtils firstAvailableViewControllerFromView:self];
         if ([vc isKindOfClass:%c(AWEPlayInteractionViewController)]) {
             for (UIView *subview in self.subviews) {
@@ -7153,17 +7157,7 @@ static Class tabBarButtonClass = nil;
         return;
     }
 
-    if (!self.window) {
-        %orig(frame);
-        return;
-    }
-
-    BOOL enableBlur = DYYYGetBool(@"DYYYEnableCommentBlur");
     BOOL enableFS = DYYYGetBool(@"DYYYEnableFullScreen");
-    if (!enableBlur && !enableFS) {
-        %orig(frame);
-        return;
-    }
 
     UIViewController *vc = [DYYYUtils firstAvailableViewControllerFromView:self];
     Class DetailVCClass = NSClassFromString(@"AWEMixVideoPanelDetailTableViewController");
@@ -7175,12 +7169,6 @@ static Class tabBarButtonClass = nil;
     BOOL isPlayVC = ((PlayVCClass1 && [vc isKindOfClass:PlayVCClass1]) ||
                      (PlayVCClass2 && [vc isKindOfClass:PlayVCClass2]) ||
                      (PlayVCClass3 && [vc isKindOfClass:PlayVCClass3]));
-
-    if (isPlayVC && enableBlur && dyyyCommentViewVisible) {
-        if (frame.origin.x != 0) {
-            return;
-        }
-    }
 
     if (isPlayVC && enableFS) {
         if (frame.origin.x != 0 && frame.origin.y != 0) {
@@ -8875,32 +8863,6 @@ static NSString *const kHideRecentUsersKey = @"DYYYHideSidebarRecentUsers";
 %end
 %end
 
-// View scaling fix when comment blur is enabled
-%group BDMultiContentImageViewGroup
-%hook BDMultiContentContainer_ImageContentView
-
-- (void)setTransform:(CGAffineTransform)transform {
-    if (DYYYGetBool(@"DYYYEnableCommentBlur")) {
-        return;
-    }
-    %orig(transform);
-}
-
-%end
-%end
-
-%hook AWEStoryContainerCollectionView
-
-- (void)setFrame:(CGRect)frame {
-    // Profile video pagers also update origin.y, so only guard the pager while comments are visible.
-    if (DYYYGetBool(@"DYYYEnableCommentBlur") && dyyyCommentViewVisible && frame.origin.y != 0) {
-        return;
-    }
-    %orig(frame);
-}
-
-%end
-
 %hook AWEDPlayerProgressContainerView
 
 - (void)layoutSubviews {
@@ -9011,11 +8973,6 @@ static void findTargetViewInView(UIView *view) {
         if (incentivePendantClass) {
             %init(IncentivePendantGroup, AWEIncentiveSwiftImplDOUYINLite_IncentivePendantContainerView = incentivePendantClass);
         }
-        Class imageContentClass = objc_getClass("BDMultiContentContainer.ImageContentView");
-        if (imageContentClass) {
-            %init(BDMultiContentImageViewGroup, BDMultiContentContainer_ImageContentView = imageContentClass);
-        }
-
         // 动态获取 Swift 类并初始化对应的组
         Class commentHeaderGeneralClass = objc_getClass("AWECommentPanelHeaderSwiftImpl.CommentHeaderGeneralView");
         if (commentHeaderGeneralClass) {
