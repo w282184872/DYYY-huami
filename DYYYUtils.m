@@ -994,6 +994,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         blurView.effect = nil;
         blurView.hidden = YES;
         [blurView removeFromSuperview];
+        [self clearCommentBlurBackgroundsInView:panelView depth:0];
         return;
     }
 
