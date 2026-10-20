@@ -2259,14 +2259,14 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
         }
       };
 
-      DYYYRemoveRemoteConfigObserver(self);
+      DYYYRemoveRemoteConfigObserver(settingsVC);
       id token = [[NSNotificationCenter defaultCenter] addObserverForName:DYYY_REMOTE_CONFIG_CHANGED_NOTIFICATION
                                                                     object:nil
                                                                      queue:[NSOperationQueue mainQueue]
                                                                 usingBlock:^(NSNotification *_Nonnull note) {
                                                                   refreshConfigConflictState();
                                                                 }];
-      objc_setAssociatedObject(self, &kDYYYRemoteConfigChangedTokenKey, token, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+      objc_setAssociatedObject(settingsVC, &kDYYYRemoteConfigChangedTokenKey, token, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
       for (NSDictionary *dict in hotUpdateSettings) {
           AWESettingItemModel *item = [DYYYSettingsHelper createSettingItem:dict];
