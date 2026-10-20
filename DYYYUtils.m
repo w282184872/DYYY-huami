@@ -87,7 +87,7 @@ void DYYYNSLog(NSString *format, ...) {
           NSString *logPath = DYYYRuntimeLogFilePath();
           NSFileManager *fileManager = [NSFileManager defaultManager];
           NSDictionary *attributes = [fileManager attributesOfItemAtPath:logPath error:nil];
-          if ([[attributes fileSize] unsignedLongLongValue] >= kDYYYRuntimeLogMaxBytes) {
+          if ([attributes[NSFileSize] unsignedLongLongValue] >= kDYYYRuntimeLogMaxBytes) {
               NSString *backupPath = [logPath stringByAppendingPathExtension:@"1"];
               [fileManager removeItemAtPath:backupPath error:nil];
               [fileManager moveItemAtPath:logPath toPath:backupPath error:nil];
