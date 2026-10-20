@@ -1007,10 +1007,9 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         return;
     }
 
-    BOOL preservesOwnBackground = [view isKindOfClass:[UIControl class]] ||
-                                  [view isKindOfClass:[UIImageView class]] ||
-                                  [view isKindOfClass:[UITextField class]] ||
-                                  [view isKindOfClass:[UITextView class]];
+    BOOL isTextField = [view isKindOfClass:[UITextField class]];
+    BOOL preservesOwnBackground = ([view isKindOfClass:[UIControl class]] && !isTextField) ||
+                                  [view isKindOfClass:[UIImageView class]];
     if (!preservesOwnBackground) {
         [self clearCommentPanelBackgroundForView:view];
     }

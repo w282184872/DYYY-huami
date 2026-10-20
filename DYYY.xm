@@ -6914,6 +6914,12 @@ static Class tabBarButtonClass = nil;
         return;
     }
 
+    if (DYYYGetBool(@"DYYYEnableCommentBlur")) {
+        self.backgroundColor = [UIColor clearColor];
+        self.layer.backgroundColor = [UIColor clearColor].CGColor;
+        self.opaque = NO;
+    }
+
     CGAffineTransform newTransform = CGAffineTransformMakeTranslation(0, originalTabBarHeight - gCurrentTabBarHeight);
 
     if (!CGAffineTransformEqualToTransform(self.transform, newTransform)) {
@@ -6990,18 +6996,20 @@ static Class tabBarButtonClass = nil;
 
     UIView *superview = collectionView.superview;
     CGRect targetFrame = superview.bounds;
-    if (superview == nil || CGSizeEqualToSize(targetFrame.size, CGSizeZero) || CGRectEqualToRect(collectionView.frame, targetFrame)) {
+    if (superview == nil || CGSizeEqualToSize(targetFrame.size, CGSizeZero)) {
         return;
     }
 
-    collectionView.frame = targetFrame;
+    if (!CGRectEqualToRect(collectionView.frame, targetFrame)) {
+        collectionView.frame = targetFrame;
 
-    CGFloat commentOffset = 166.0;
+        CGFloat commentOffset = 166.0;
 
-    UIEdgeInsets inset = collectionView.contentInset;
-    inset.bottom = commentOffset;
-    collectionView.contentInset = inset;
-    collectionView.scrollIndicatorInsets = inset;
+        UIEdgeInsets inset = collectionView.contentInset;
+        inset.bottom = commentOffset;
+        collectionView.contentInset = inset;
+        collectionView.scrollIndicatorInsets = inset;
+    }
     [DYYYUtils clearCommentBlurBackgroundsInView:collectionView];
 }
 
@@ -7040,12 +7048,15 @@ static Class tabBarButtonClass = nil;
     }
 
     if (DYYYGetBool(@"DYYYEnableCommentBlur")) {
-        Class commentLabelClass = objc_getClass("AWECommentPanelListSwiftImpl.BaseCellCommentLabel");
-        Class commentVirtualLabelClass = objc_getClass("AWECommentPanelListSwiftImpl.NEWAPI.CommentVirtualLabel");
-        Class commentInteractionLabelClass = objc_getClass("AWECommentSwiftBizUI.CommentInteractionBaseLabel");
-        if ((commentLabelClass && [self isKindOfClass:commentLabelClass]) ||
-            (commentVirtualLabelClass && [self isKindOfClass:commentVirtualLabelClass]) ||
-            (commentInteractionLabelClass && [self isKindOfClass:commentInteractionLabelClass])) {
+        NSString *className = NSStringFromClass([self class]);
+        BOOL isCommentPanelText = [className containsString:@"AWECommentPanelListSwiftImpl"] &&
+                                  ([className containsString:@"Label"] || [className containsString:@"Fold"]);
+        BOOL isCommentInputSurface = [className containsString:@"AWEComment"] &&
+                                     ([className containsString:@"InputBackgroundView"] ||
+                                      [className containsString:@"CommentInputTextView"]);
+        BOOL isCommentBizLabel = [className containsString:@"AWECommentSwiftBizUI"] &&
+                                 [className containsString:@"Label"];
+        if (isCommentPanelText || isCommentInputSurface || isCommentBizLabel) {
             %orig([UIColor clearColor]);
             return;
         }
@@ -8573,6 +8584,10 @@ static Class TagViewClass = nil;
         if (target) {
             target.hidden = ([(UIView *)self frame].size.height == gCurrentTabBarHeight);
         }
+    }
+
+    if (DYYYGetBool(@"DYYYEnableCommentBlur")) {
+        [DYYYUtils clearCommentBlurBackgroundsInView:(UIView *)self];
     }
 }
 
