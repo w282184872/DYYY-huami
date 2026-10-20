@@ -878,11 +878,24 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
 }
 
 + (BOOL)shouldClearCommentBlurBackgroundsForView:(UIView *)view {
-    if (!view || ![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableCommentBlur"]) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if (!view || ![defaults boolForKey:@"DYYYEnableCommentBlur"]) {
         return NO;
     }
 
     NSString *className = NSStringFromClass([view class]);
+    id transparencyValue = [defaults objectForKey:@"DYYYCommentBlurTransparent"];
+    float transparency = transparencyValue ? [transparencyValue floatValue] : 0.8;
+    if (isfinite(transparency) && transparency >= 0.9995) {
+        for (UIResponder *responder = view; responder; responder = responder.nextResponder) {
+            NSString *responderClassName = NSStringFromClass([responder class]);
+            if ([responderClassName containsString:@"AWECommentContainerViewController"] ||
+                [responderClassName containsString:@"AWECommentPanelContainerSwiftImpl"]) {
+                return YES;
+            }
+        }
+    }
+
     BOOL isCommentPanelText = [className containsString:@"AWECommentPanelListSwiftImpl"] &&
                               ([className containsString:@"Label"] || [className containsString:@"Fold"]);
     BOOL isCommentInputSurface = [className containsString:@"AWEComment"] &&
@@ -961,6 +974,14 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     CGFloat normalizedTransparency = MIN(MAX(userTransparency, 0.0), 1.0);
     BOOL fullyTransparent = normalizedTransparency >= 0.9995;
     UIBlurEffect *blurEffect = fullyTransparent ? nil : [UIBlurEffect effectWithStyle:blurStyle];
+    if (fullyTransparent) {
+        blurView.effect = nil;
+        blurView.hidden = YES;
+        [blurView removeFromSuperview];
+        [self clearCommentBlurBackgroundsInView:panelView depth:0];
+        return;
+    }
+
     if (!blurView) {
         blurView = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
         blurView.tag = kDYYYCommentPanelBlurTag;
@@ -969,9 +990,8 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         blurView.effect = blurEffect;
     }
 
-    // 整体淡出比单纯降低 tint 更细，透明度 1 时彻底移除系统材质。
-    blurView.hidden = fullyTransparent;
-    blurView.alpha = fullyTransparent ? 0.0 : (1.0 - normalizedTransparency);
+    blurView.hidden = NO;
+    blurView.alpha = 1.0 - normalizedTransparency;
     blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     blurView.layer.cornerRadius = panelView.layer.cornerRadius;
     blurView.layer.maskedCorners = panelView.layer.maskedCorners;
