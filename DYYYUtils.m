@@ -993,6 +993,13 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
 
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view {
     [self clearCommentBlurBackgroundsInView:view depth:0];
+
+    // 评论 cell 会在列表布局结束后继续配置富文本，下一轮主线程再清一次可消除白底闪现。
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (view.window) {
+            [self clearCommentBlurBackgroundsInView:view depth:0];
+        }
+    });
 }
 
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth {

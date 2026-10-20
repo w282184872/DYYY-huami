@@ -7039,6 +7039,18 @@ static Class tabBarButtonClass = nil;
         return;
     }
 
+    if (DYYYGetBool(@"DYYYEnableCommentBlur")) {
+        Class commentLabelClass = objc_getClass("AWECommentPanelListSwiftImpl.BaseCellCommentLabel");
+        Class commentVirtualLabelClass = objc_getClass("AWECommentPanelListSwiftImpl.NEWAPI.CommentVirtualLabel");
+        Class commentInteractionLabelClass = objc_getClass("AWECommentSwiftBizUI.CommentInteractionBaseLabel");
+        if ((commentLabelClass && [self isKindOfClass:commentLabelClass]) ||
+            (commentVirtualLabelClass && [self isKindOfClass:commentVirtualLabelClass]) ||
+            (commentInteractionLabelClass && [self isKindOfClass:commentInteractionLabelClass])) {
+            %orig([UIColor clearColor]);
+            return;
+        }
+    }
+
     if (DYYYGetBool(@"DYYYEnableFullScreen")) {
         UIViewController *vc = [DYYYUtils firstAvailableViewControllerFromView:self];
         if ([vc isKindOfClass:%c(AWEAwemeDetailTableViewController)] ||
