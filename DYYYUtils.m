@@ -957,16 +957,20 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
 
     BOOL isDarkMode = [self isDarkMode];
     UIBlurEffectStyle blurStyle = isDarkMode ? UIBlurEffectStyleDark : UIBlurEffectStyleLight;
+    CGFloat normalizedTransparency = MIN(MAX(userTransparency, 0.0), 1.0);
+    BOOL fullyTransparent = normalizedTransparency >= 0.9995;
+    UIBlurEffect *blurEffect = fullyTransparent ? nil : [UIBlurEffect effectWithStyle:blurStyle];
     if (!blurView) {
-        blurView = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:blurStyle]];
+        blurView = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
         blurView.tag = kDYYYCommentPanelBlurTag;
         blurView.userInteractionEnabled = NO;
-    } else if (!blurView.effect) {
-        blurView.effect = [UIBlurEffect effectWithStyle:blurStyle];
+    } else {
+        blurView.effect = blurEffect;
     }
 
-    // UIVisualEffectView 的 alpha 必须保持 1，否则系统会降级模糊采样。
-    blurView.alpha = 1.0;
+    // 整体淡出比单纯降低 tint 更细，透明度 1 时彻底移除系统材质。
+    blurView.hidden = fullyTransparent;
+    blurView.alpha = fullyTransparent ? 0.0 : (1.0 - normalizedTransparency);
     blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     blurView.layer.cornerRadius = panelView.layer.cornerRadius;
     blurView.layer.maskedCorners = panelView.layer.maskedCorners;
@@ -987,9 +991,9 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         tintView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [blurView.contentView addSubview:tintView];
     }
-    CGFloat normalizedTransparency = MIN(MAX(userTransparency, 0.0), 1.0);
+    CGFloat tintVisibility = pow(MAX(0.0, 1.0 - normalizedTransparency), 1.5);
     tintView.backgroundColor = isDarkMode ? [UIColor blackColor] : [UIColor whiteColor];
-    tintView.alpha = (1.0 - normalizedTransparency) * (isDarkMode ? 0.55 : 0.65);
+    tintView.alpha = tintVisibility * (isDarkMode ? 0.55 : 0.65);
 
     NSArray<UIView *> *rootSubviews = rootView.subviews;
     NSUInteger blurIndex = [rootSubviews indexOfObjectIdenticalTo:blurView];
