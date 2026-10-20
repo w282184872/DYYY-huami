@@ -199,7 +199,7 @@ void initTargetClassNames(void) {
         self.layer.cornerRadius = frame.size.width / 2;
         self.layer.masksToBounds = YES;
         self.isElementsHidden = NO;
-        self.hiddenViewsList = [NSMutableArray array];
+        self.hiddenViewsList = [NSHashTable weakObjectsHashTable];
 
         self.originalAlpha = 1.0;
         self.alpha = 0.5;
@@ -259,7 +259,7 @@ void initTargetClassNames(void) {
                                                             return;
                                                         }
                                                         if (strongSelf.isElementsHidden) {
-                                                            [strongSelf hideUIElements];
+                                                            [strongSelf reapplyHiddenElements];
                                                         }
                                                       }];
     self.checkTimer = timer;
@@ -497,6 +497,38 @@ void initTargetClassNames(void) {
     });
 }
 
+- (void)trackHiddenView:(UIView *)view {
+    if (view && view != self) {
+        [self.hiddenViewsList addObject:view];
+    }
+}
+
+- (void)reapplyHiddenElements {
+    if (!self.isElementsHidden) {
+        return;
+    }
+
+    Class progressContainerClass = NSClassFromString(@"AWEPlayInteractionProgressContainerView");
+    BOOL removeProgress = [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYRemoveTimeProgress"];
+    DYYYPerformClearButtonMutation(^{
+      for (UIView *view in self.hiddenViewsList.allObjects) {
+          if (!view.window || view == self) {
+              continue;
+          }
+          if (progressContainerClass && [view isKindOfClass:progressContainerClass]) {
+              if (removeProgress) {
+                  view.hidden = YES;
+              } else {
+                  view.tag = DYYY_IGNORE_GLOBAL_ALPHA_TAG;
+                  view.alpha = 0.0;
+              }
+          } else {
+              view.alpha = 0.0;
+          }
+      }
+    });
+}
+
 - (void)hideAWEPlayInteractionProgressContainerView {
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYRemoveTimeProgress"] || [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideTimeProgress"]) {
         for (UIWindow *window in [UIApplication sharedApplication].windows) {
@@ -513,7 +545,7 @@ void initTargetClassNames(void) {
             view.tag = DYYY_IGNORE_GLOBAL_ALPHA_TAG;
             view.alpha = 0.0;
         }
-        [self.hiddenViewsList addObject:view];
+        [self trackHiddenView:view];
         return;
     }
 
@@ -539,7 +571,7 @@ void initTargetClassNames(void) {
                             continue;
                         }
                     }
-                    [self.hiddenViewsList addObject:view];
+                    [self trackHiddenView:view];
                     view.alpha = 0.0;
                 }
             }

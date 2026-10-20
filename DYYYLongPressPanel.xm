@@ -8,6 +8,41 @@
 #import "DYYYToast.h"
 #import "DYYYUtils.h"
 
+static NSString *DYYYBestImageURLForAlbumImage(AWEImageAlbumImageModel *imageModel) {
+    for (NSString *urlString in imageModel.urlList) {
+        if (![urlString isKindOfClass:[NSString class]] || urlString.length == 0) {
+            continue;
+        }
+        NSURL *URL = [NSURL URLWithString:urlString];
+        if (URL.scheme.length > 0 && ![[URL.path.lowercaseString pathExtension] isEqualToString:@"image"]) {
+            return urlString;
+        }
+    }
+
+    id firstURL = imageModel.urlList.firstObject;
+    return [firstURL isKindOfClass:[NSString class]] && [firstURL length] > 0 ? firstURL : nil;
+}
+
+static void DYYYCollectAlbumMedia(AWEAwemeModel *awemeModel, NSMutableArray *imageURLs, NSMutableArray *livePhotos) {
+    for (AWEImageAlbumImageModel *imageModel in awemeModel.albumImages) {
+        NSString *imageURLString = DYYYBestImageURLForAlbumImage(imageModel);
+        if (imageURLString.length == 0) {
+            continue;
+        }
+
+        NSString *videoURLString = nil;
+        if (imageModel.clipVideo != nil) {
+            videoURLString = [imageModel.clipVideo.playURL getDYYYSrcURLDownload].absoluteString;
+        }
+
+        if (videoURLString.length > 0) {
+            [livePhotos addObject:@{@"imageURL" : imageURLString, @"videoURL" : videoURLString}];
+        } else if (![imageURLs containsObject:imageURLString]) {
+            [imageURLs addObject:imageURLString];
+        }
+    }
+}
+
 %hook AWELongPressPanelViewGroupModel
 %property(nonatomic, assign) BOOL isDYYYCustomGroup;
 %end
@@ -212,7 +247,11 @@
             imageViewModel.describeString = @"保存当前图片";
         }
 
-        AWEImageAlbumImageModel *currimge = self.awemeModel.albumImages[self.awemeModel.currentImageIndex - 1];
+        NSInteger currentIndex = self.awemeModel.currentImageIndex;
+        AWEImageAlbumImageModel *currimge =
+            currentIndex > 0 && currentIndex <= self.awemeModel.albumImages.count
+                ? self.awemeModel.albumImages[currentIndex - 1]
+                : self.awemeModel.albumImages.firstObject;
         if (currimge.clipVideo != nil || self.awemeModel.isLivePhoto) {
             if (self.awemeModel.albumImages.count == 1) {
                 imageViewModel.describeString = @"保存实况";
@@ -290,32 +329,7 @@
           NSMutableArray *imageURLs = [NSMutableArray array];
           NSMutableArray *livePhotos = [NSMutableArray array];
 
-          for (AWEImageAlbumImageModel *imageModel in awemeModel.albumImages) {
-              if (imageModel.urlList.count > 0) {
-                  // 查找非.image后缀的URL
-                  NSURL *downloadURL = nil;
-                  for (NSString *urlString in imageModel.urlList) {
-                      NSURL *url = [NSURL URLWithString:urlString];
-                      NSString *pathExtension = [url.path.lowercaseString pathExtension];
-                      if (![pathExtension isEqualToString:@"image"]) {
-                          downloadURL = url;
-                          break;
-                      }
-                  }
-
-                  if (!downloadURL && imageModel.urlList.count > 0) {
-                      downloadURL = [NSURL URLWithString:imageModel.urlList.firstObject];
-                  }
-
-                  // 检查是否是实况照片
-                  if (imageModel.clipVideo != nil) {
-                      NSURL *videoURL = [imageModel.clipVideo.playURL getDYYYSrcURLDownload];
-                      [livePhotos addObject:@{@"imageURL" : downloadURL.absoluteString, @"videoURL" : videoURL.absoluteString}];
-                  } else {
-                      [imageURLs addObject:downloadURL.absoluteString];
-                  }
-              }
-          }
+          DYYYCollectAlbumMedia(awemeModel, imageURLs, livePhotos);
 
           // 分别处理普通图片和实况照片
           if (livePhotos.count > 0) {
@@ -427,36 +441,7 @@
               bgmURL = awemeModel.music.playURL.originURLList.firstObject;
           }
 
-          // 处理所有图片和实况
-          for (AWEImageAlbumImageModel *imageModel in awemeModel.albumImages) {
-              if (imageModel.urlList.count > 0) {
-                  // 查找非.image后缀的URL
-                  NSString *bestURL = nil;
-                  for (NSString *urlString in imageModel.urlList) {
-                      NSURL *url = [NSURL URLWithString:urlString];
-                      NSString *pathExtension = [url.path.lowercaseString pathExtension];
-                      if (![pathExtension isEqualToString:@"image"]) {
-                          bestURL = urlString;
-                          break;
-                      }
-                  }
-
-                  if (!bestURL && imageModel.urlList.count > 0) {
-                      bestURL = imageModel.urlList.firstObject;
-                  }
-
-                  // 如果是实况照片，需要收集图片和视频URL
-                  if (imageModel.clipVideo != nil) {
-                      NSURL *videoURL = [imageModel.clipVideo.playURL getDYYYSrcURLDownload];
-                      if (videoURL) {
-                          [livePhotos addObject:@{@"imageURL" : bestURL, @"videoURL" : videoURL.absoluteString}];
-                      }
-                  } else {
-                      // 普通图片
-                      [imageURLs addObject:bestURL];
-                  }
-              }
-          }
+          DYYYCollectAlbumMedia(awemeModel, imageURLs, livePhotos);
 
           // 调用视频创建API
           [DYYYManager createVideoFromMedia:imageURLs
@@ -981,7 +966,11 @@
             imageViewModel.describeString = @"保存当前图片";
         }
 
-        AWEImageAlbumImageModel *currimge = self.awemeModel.albumImages[self.awemeModel.currentImageIndex - 1];
+        NSInteger currentIndex = self.awemeModel.currentImageIndex;
+        AWEImageAlbumImageModel *currimge =
+            currentIndex > 0 && currentIndex <= self.awemeModel.albumImages.count
+                ? self.awemeModel.albumImages[currentIndex - 1]
+                : self.awemeModel.albumImages.firstObject;
         if (currimge.clipVideo != nil || self.awemeModel.isLivePhoto) {
             if (self.awemeModel.albumImages.count == 1) {
                 imageViewModel.describeString = @"保存实况";
@@ -1060,32 +1049,7 @@
           NSMutableArray *imageURLs = [NSMutableArray array];
           NSMutableArray *livePhotos = [NSMutableArray array];
 
-          for (AWEImageAlbumImageModel *imageModel in awemeModel.albumImages) {
-              if (imageModel.urlList.count > 0) {
-                  // 查找非.image后缀的URL
-                  NSURL *downloadURL = nil;
-                  for (NSString *urlString in imageModel.urlList) {
-                      NSURL *url = [NSURL URLWithString:urlString];
-                      NSString *pathExtension = [url.path.lowercaseString pathExtension];
-                      if (![pathExtension isEqualToString:@"image"]) {
-                          downloadURL = url;
-                          break;
-                      }
-                  }
-
-                  if (!downloadURL && imageModel.urlList.count > 0) {
-                      downloadURL = [NSURL URLWithString:imageModel.urlList.firstObject];
-                  }
-
-                  // 检查是否是实况照片
-                  if (imageModel.clipVideo != nil) {
-                      NSURL *videoURL = [imageModel.clipVideo.playURL getDYYYSrcURLDownload];
-                      [livePhotos addObject:@{@"imageURL" : downloadURL.absoluteString, @"videoURL" : videoURL.absoluteString}];
-                  } else {
-                      [imageURLs addObject:downloadURL.absoluteString];
-                  }
-              }
-          }
+          DYYYCollectAlbumMedia(awemeModel, imageURLs, livePhotos);
 
           // 分别处理普通图片和实况照片
           if (livePhotos.count > 0) {
@@ -1197,36 +1161,7 @@
               bgmURL = awemeModel.music.playURL.originURLList.firstObject;
           }
 
-          // 处理所有图片和实况
-          for (AWEImageAlbumImageModel *imageModel in awemeModel.albumImages) {
-              if (imageModel.urlList.count > 0) {
-                  // 查找非.image后缀的URL
-                  NSString *bestURL = nil;
-                  for (NSString *urlString in imageModel.urlList) {
-                      NSURL *url = [NSURL URLWithString:urlString];
-                      NSString *pathExtension = [url.path.lowercaseString pathExtension];
-                      if (![pathExtension isEqualToString:@"image"]) {
-                          bestURL = urlString;
-                          break;
-                      }
-                  }
-
-                  if (!bestURL && imageModel.urlList.count > 0) {
-                      bestURL = imageModel.urlList.firstObject;
-                  }
-
-                  // 如果是实况照片，需要收集图片和视频URL
-                  if (imageModel.clipVideo != nil) {
-                      NSURL *videoURL = [imageModel.clipVideo.playURL getDYYYSrcURLDownload];
-                      if (videoURL) {
-                          [livePhotos addObject:@{@"imageURL" : bestURL, @"videoURL" : videoURL.absoluteString}];
-                      }
-                  } else {
-                      // 普通图片
-                      [imageURLs addObject:bestURL];
-                  }
-              }
-          }
+          DYYYCollectAlbumMedia(awemeModel, imageURLs, livePhotos);
 
           // 调用视频创建API
           [DYYYManager createVideoFromMedia:imageURLs

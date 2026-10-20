@@ -31,7 +31,7 @@ void initTargetClassNames(void);
 @interface HideUIButton : UIButton
 @property(nonatomic, assign) BOOL isElementsHidden;
 @property(nonatomic, assign) BOOL isLocked;
-@property(nonatomic, strong) NSMutableArray *hiddenViewsList;
+@property(nonatomic, strong) NSHashTable<UIView *> *hiddenViewsList;
 @property(nonatomic, strong) UIImage *showIcon;
 @property(nonatomic, strong) UIImage *hideIcon;
 @property(nonatomic, assign) CGFloat originalAlpha;
@@ -39,6 +39,8 @@ void initTargetClassNames(void);
 @property(nonatomic, strong) NSTimer *fadeTimer;
 - (void)resetFadeTimer;
 - (void)hideUIElements;
+- (void)reapplyHiddenElements;
+- (void)trackHiddenView:(UIView *)view;
 - (void)findAndHideViews:(NSArray *)classNames;
 - (void)safeResetState;
 - (void)startPeriodicCheck;

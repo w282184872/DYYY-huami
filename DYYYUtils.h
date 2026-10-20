@@ -82,6 +82,17 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)applyCommentPanelBlurToRootViewController:(UIViewController *)rootViewController transparency:(float)userTransparency;
 
 /**
+ * @brief 移除评论毛玻璃并恢复被透明化视图的原始样式。
+ */
++ (void)removeCommentPanelBlurFromRootViewController:(UIViewController *)rootViewController;
+
+/**
+ * @brief 在评论类修改背景前保存原始样式，供关闭毛玻璃时恢复。
+ */
++ (void)captureCommentBlurBackgroundForView:(UIView *)view;
++ (void)captureCommentBlurBackgroundForView:(UIView *)view backgroundColor:(UIColor *)backgroundColor;
+
+/**
  * @brief 判断视图是否属于评论区文字或输入区域。
  */
 + (BOOL)shouldClearCommentBlurBackgroundsForView:(UIView *)view;

@@ -19,7 +19,8 @@
 // 设置用户默认设置
 + (void)setUserDefaults:(id)object forKey:(NSString *)key {
     [[NSUserDefaults standardUserDefaults] setObject:object forKey:key];
-    if ([key isEqualToString:@"DYYYCommentBlurTransparent"]) {
+    if ([key isEqualToString:@"DYYYCommentBlurTransparent"] ||
+        [key isEqualToString:@"DYYYEnableCommentBlur"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
           [[NSNotificationCenter defaultCenter] postNotificationName:DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION object:nil];
         });

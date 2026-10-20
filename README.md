@@ -76,7 +76,7 @@
 
 ## 远程配置
 
-DYYY 可以通过远程 JSON 文件批量应用设置。默认下载地址在 `DYYYConstants.h` 中的 `DYYY_REMOTE_CONFIG_URL`。配置文件示例：
+DYYY 可以通过远程 JSON 文件批量应用设置。默认下载地址在 `DYYYConstants.h` 中的 `DYYY_DEFAULT_ABTEST_URL`。配置文件示例：
 
 ```json
 {

@@ -33,6 +33,7 @@ static const void *kLabelColorStateKey = &kLabelColorStateKey;
 static const NSTimeInterval kDYYYUtilsDefaultFrameDelay = 0.1f;
 static const NSInteger kDYYYCommentPanelBlurTag = 0xD99901;
 static const NSInteger kDYYYCommentPanelBlurTintTag = 0xD99902;
+static const unsigned long long kDYYYRuntimeLogMaxBytes = 2 * 1024 * 1024;
 
 static NSString *DYYYRuntimeLogFilePath(void) {
     static NSString *logPath = nil;
@@ -67,13 +68,7 @@ void DYYYNSLog(NSString *format, ...) {
     dispatch_once(&loggerOnceToken, ^{
       dyyyLogger = os_log_create("com.dyyy.tweak", "runtime");
     });
-    os_log_with_type(dyyyLogger, OS_LOG_TYPE_DEFAULT, "%{public}@", message);
-
-    const char *stderrMessage = message.UTF8String;
-    if (stderrMessage) {
-        fprintf(stderr, "%s\n", stderrMessage);
-        fflush(stderr);
-    }
+    os_log_with_type(dyyyLogger, OS_LOG_TYPE_DEFAULT, "%{private}@", message);
 
     static dispatch_queue_t logQueue = nil;
     static dispatch_once_t queueOnceToken;
@@ -91,6 +86,12 @@ void DYYYNSLog(NSString *format, ...) {
 
           NSString *logPath = DYYYRuntimeLogFilePath();
           NSFileManager *fileManager = [NSFileManager defaultManager];
+          NSDictionary *attributes = [fileManager attributesOfItemAtPath:logPath error:nil];
+          if ([[attributes fileSize] unsignedLongLongValue] >= kDYYYRuntimeLogMaxBytes) {
+              NSString *backupPath = [logPath stringByAppendingPathExtension:@"1"];
+              [fileManager removeItemAtPath:backupPath error:nil];
+              [fileManager moveItemAtPath:logPath toPath:backupPath error:nil];
+          }
           if (![fileManager fileExistsAtPath:logPath]) {
               [fileManager createFileAtPath:logPath contents:nil attributes:nil];
           }
@@ -122,6 +123,94 @@ static inline CGFloat DYYYUtilsNormalizedDelay(CGFloat delay) {
 @property(nonatomic, copy) NSString *fontName;
 @property(nonatomic, assign) CGFloat fontSize;
 @end
+
+@interface DYYYCommentBlurViewState : NSObject
+@property(nonatomic, strong) UIColor *backgroundColor;
+@property(nonatomic, strong) UIColor *layerBackgroundColor;
+@property(nonatomic, assign) BOOL opaque;
+@property(nonatomic, strong) UIVisualEffect *effect;
+@end
+
+@implementation DYYYCommentBlurViewState
+@end
+
+@protocol DYYYAttributedTextContainer <NSObject>
+@property(nonatomic, copy) NSAttributedString *attributedText;
+@end
+
+static const void *kDYYYCommentBlurViewStateKey = &kDYYYCommentBlurViewStateKey;
+static NSHashTable<UIView *> *dyyyCommentBlurStyledViews = nil;
+static __weak UIView *dyyyLastScannedCommentPanelView = nil;
+static BOOL dyyyRestoringCommentBlurViewStyles = NO;
+
+static void DYYYCaptureCommentBlurViewStyle(UIView *view) {
+    if (!view || objc_getAssociatedObject(view, kDYYYCommentBlurViewStateKey)) {
+        return;
+    }
+
+    DYYYCommentBlurViewState *state = [[DYYYCommentBlurViewState alloc] init];
+    state.backgroundColor = view.backgroundColor;
+    state.opaque = view.opaque;
+    CGColorRef layerBackgroundColor = view.layer.backgroundColor;
+    if (layerBackgroundColor) {
+        state.layerBackgroundColor = [UIColor colorWithCGColor:layerBackgroundColor];
+    }
+    if ([view isKindOfClass:[UIVisualEffectView class]]) {
+        state.effect = ((UIVisualEffectView *)view).effect;
+    }
+    objc_setAssociatedObject(view, kDYYYCommentBlurViewStateKey, state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    if (!dyyyCommentBlurStyledViews) {
+        dyyyCommentBlurStyledViews = [NSHashTable weakObjectsHashTable];
+    }
+    [dyyyCommentBlurStyledViews addObject:view];
+}
+
+static void DYYYRestoreCommentBlurViewStyle(UIView *view) {
+    DYYYCommentBlurViewState *state = objc_getAssociatedObject(view, kDYYYCommentBlurViewStateKey);
+    if (!state) {
+        return;
+    }
+
+    dyyyRestoringCommentBlurViewStyles = YES;
+    @try {
+        view.backgroundColor = state.backgroundColor;
+        view.opaque = state.opaque;
+        view.layer.backgroundColor = state.layerBackgroundColor.CGColor;
+        if ([view isKindOfClass:[UIVisualEffectView class]]) {
+            ((UIVisualEffectView *)view).effect = state.effect;
+        }
+    } @finally {
+        dyyyRestoringCommentBlurViewStyles = NO;
+    }
+    objc_setAssociatedObject(view, kDYYYCommentBlurViewStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static NSAttributedString *DYYYAttributedTextWithoutCommentBackgrounds(NSAttributedString *attributedText) {
+    if (attributedText.length == 0) {
+        return attributedText;
+    }
+
+    __block BOOL hasBackgroundAttribute = NO;
+    [attributedText enumerateAttributesInRange:NSMakeRange(0, attributedText.length)
+                                       options:0
+                                    usingBlock:^(NSDictionary<NSAttributedStringKey, id> *attrs, NSRange range, BOOL *stop) {
+                                      if (attrs[NSBackgroundColorAttributeName] || attrs[@"YYTextBorder"] || attrs[@"YYTextBorderArray"]) {
+                                          hasBackgroundAttribute = YES;
+                                          *stop = YES;
+                                      }
+                                    }];
+    if (!hasBackgroundAttribute) {
+        return attributedText;
+    }
+
+    NSMutableAttributedString *cleanedText = [[NSMutableAttributedString alloc] initWithAttributedString:attributedText];
+    NSRange fullRange = NSMakeRange(0, cleanedText.length);
+    [cleanedText removeAttribute:NSBackgroundColorAttributeName range:fullRange];
+    [cleanedText removeAttribute:@"YYTextBorder" range:fullRange];
+    [cleanedText removeAttribute:@"YYTextBorderArray" range:fullRange];
+    return cleanedText;
+}
 
 @implementation DYYYLabelColorState
 @end
@@ -385,7 +474,7 @@ static BOOL DYYYUtilsWriteStaticImageToGIF(UIImage *image, NSURL *gifURL) {
 + (NSString *)displayLocationForGeoNamesError:(NSError *)error model:(AWEAwemeModel *)model;
 + (void)clearCommentPanelBackdropObstructionsInRootView:(UIView *)rootView keepingView:(UIView *)keepView;
 + (void)clearCommentPanelBackgroundForView:(UIView *)view;
-+ (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth;
++ (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth maxDepth:(NSUInteger)maxDepth;
 @end
 
 @implementation DYYYUtils
@@ -877,21 +966,29 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
 }
 
 + (BOOL)shouldClearCommentBlurBackgroundsForView:(UIView *)view {
-    if (!view || ![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableCommentBlur"]) {
+    if (!view || dyyyRestoringCommentBlurViewStyles || ![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableCommentBlur"]) {
         return NO;
     }
 
     NSString *className = NSStringFromClass([view class]);
-    BOOL isCommentPanelText = [className containsString:@"AWECommentPanelListSwiftImpl"] &&
-                              ([className containsString:@"Label"] || [className containsString:@"Fold"]);
-    BOOL isCommentInputSurface = [className containsString:@"AWEComment"] &&
-                                 ([className containsString:@"InputBackgroundView"] ||
-                                  [className containsString:@"CommentInputTextView"] ||
-                                  [className containsString:@"CommentInputContent"] ||
-                                  [className containsString:@"InputContainerView"]);
-    BOOL isCommentBizLabel = [className containsString:@"AWECommentSwiftBizUI"] &&
-                             [className containsString:@"Label"];
-    return isCommentPanelText || isCommentInputSurface || isCommentBizLabel;
+    return [className containsString:@"AWEComment"] ||
+           [className containsString:@"CommentPanel"] ||
+           [className containsString:@"CommentInputContainerView"];
+}
+
++ (void)captureCommentBlurBackgroundForView:(UIView *)view {
+    DYYYCaptureCommentBlurViewStyle(view);
+}
+
++ (void)captureCommentBlurBackgroundForView:(UIView *)view backgroundColor:(UIColor *)backgroundColor {
+    BOOL alreadyCaptured = objc_getAssociatedObject(view, kDYYYCommentBlurViewStateKey) != nil;
+    DYYYCaptureCommentBlurViewStyle(view);
+    if (alreadyCaptured) {
+        return;
+    }
+    DYYYCommentBlurViewState *state = objc_getAssociatedObject(view, kDYYYCommentBlurViewStateKey);
+    state.backgroundColor = backgroundColor;
+    state.layerBackgroundColor = backgroundColor;
 }
 
 + (NSAttributedString *)commentBlurCleanedAttributedText:(NSAttributedString *)attributedText forView:(UIView *)view {
@@ -899,25 +996,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         return attributedText;
     }
 
-    __block BOOL hasBackgroundAttribute = NO;
-    [attributedText enumerateAttributesInRange:NSMakeRange(0, attributedText.length)
-                                       options:0
-                                    usingBlock:^(NSDictionary<NSAttributedStringKey, id> *attrs, NSRange range, BOOL *stop) {
-                                      if (attrs[NSBackgroundColorAttributeName] || attrs[@"YYTextBorder"] || attrs[@"YYTextBorderArray"]) {
-                                          hasBackgroundAttribute = YES;
-                                          *stop = YES;
-                                      }
-                                    }];
-    if (!hasBackgroundAttribute) {
-        return attributedText;
-    }
-
-    NSMutableAttributedString *cleanedText = [[NSMutableAttributedString alloc] initWithAttributedString:attributedText];
-    NSRange fullRange = NSMakeRange(0, cleanedText.length);
-    [cleanedText removeAttribute:NSBackgroundColorAttributeName range:fullRange];
-    [cleanedText removeAttribute:@"YYTextBorder" range:fullRange];
-    [cleanedText removeAttribute:@"YYTextBorderArray" range:fullRange];
-    return cleanedText;
+    return DYYYAttributedTextWithoutCommentBackgrounds(attributedText);
 }
 
 + (void)applyCommentPanelBlurToRootViewController:(UIViewController *)rootViewController transparency:(float)userTransparency {
@@ -926,16 +1005,17 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
 
     UIView *rootView = rootViewController.view;
+    DYYYCaptureCommentBlurViewStyle(rootView);
+    rootView.backgroundColor = [UIColor clearColor];
+    rootView.opaque = NO;
+    rootView.layer.backgroundColor = [UIColor clearColor].CGColor;
+
     Class innerViewControllerClass = NSClassFromString(@"AWECommentPanelContainerSwiftImpl.CommentContainerInnerViewController");
     UIViewController *innerViewController = [self findViewControllerOfClass:innerViewControllerClass inViewController:rootViewController];
     UIView *panelView = innerViewController.view;
     if (!panelView || ![panelView isDescendantOfView:rootView]) {
         return;
     }
-
-    rootView.backgroundColor = [UIColor clearColor];
-    rootView.opaque = NO;
-    rootView.layer.backgroundColor = [UIColor clearColor].CGColor;
 
     UIView *topLevelPanelView = panelView;
     while (topLevelPanelView.superview && topLevelPanelView.superview != rootView) {
@@ -1006,7 +1086,25 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
     blurView.frame = [panelView convertRect:panelView.bounds toView:rootView];
 
-    [self clearCommentBlurBackgroundsInView:panelView depth:0];
+    if (panelView != dyyyLastScannedCommentPanelView) {
+        [self clearCommentBlurBackgroundsInView:panelView depth:0 maxDepth:64];
+        dyyyLastScannedCommentPanelView = panelView;
+    }
+}
+
++ (void)removeCommentPanelBlurFromRootViewController:(UIViewController *)rootViewController {
+    dyyyLastScannedCommentPanelView = nil;
+    UIView *rootView = rootViewController.view;
+    for (UIView *subview in [rootView.subviews copy]) {
+        if (subview.tag == kDYYYCommentPanelBlurTag) {
+            [subview removeFromSuperview];
+        }
+    }
+
+    for (UIView *view in dyyyCommentBlurStyledViews.allObjects) {
+        DYYYRestoreCommentBlurViewStyle(view);
+    }
+    [dyyyCommentBlurStyledViews removeAllObjects];
 }
 
 + (void)clearCommentPanelBackdropObstructionsInRootView:(UIView *)rootView keepingView:(UIView *)keepView {
@@ -1014,6 +1112,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         return;
     }
 
+    DYYYCaptureCommentBlurViewStyle(rootView);
     rootView.opaque = NO;
 
     for (UIView *subview in rootView.subviews) {
@@ -1021,6 +1120,17 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
             continue;
         }
 
+        NSString *className = NSStringFromClass([subview class]);
+        BOOL isBackdropObstruction = [subview isKindOfClass:[UIVisualEffectView class]] ||
+                                     [className rangeOfString:@"Mask" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                                     [className rangeOfString:@"Backdrop" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                                     [className rangeOfString:@"Overlay" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                                     [className rangeOfString:@"Dim" options:NSCaseInsensitiveSearch].location != NSNotFound;
+        if (!isBackdropObstruction) {
+            continue;
+        }
+
+        DYYYCaptureCommentBlurViewStyle(subview);
         subview.backgroundColor = [UIColor clearColor];
         subview.opaque = NO;
         subview.layer.backgroundColor = [UIColor clearColor].CGColor;
@@ -1035,46 +1145,61 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         return;
     }
 
+    DYYYCaptureCommentBlurViewStyle(view);
     view.backgroundColor = [UIColor clearColor];
     view.opaque = NO;
     view.layer.backgroundColor = [UIColor clearColor].CGColor;
 }
 
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view {
-    [self clearCommentBlurBackgroundsInView:view depth:0];
-
-    // 评论 cell 会在列表布局结束后继续配置富文本，下一轮主线程再清一次可消除白底闪现。
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (view.window) {
-            [self clearCommentBlurBackgroundsInView:view depth:0];
-        }
-    });
+    [self clearCommentBlurBackgroundsInView:view depth:0 maxDepth:0];
 }
 
-+ (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth {
-    if (!view || depth > 20) {
++ (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth maxDepth:(NSUInteger)maxDepth {
+    if (!view) {
         return;
     }
 
     if ([view isKindOfClass:[UIVisualEffectView class]] && view.tag != kDYYYCommentPanelBlurTag) {
+        DYYYCaptureCommentBlurViewStyle(view);
         ((UIVisualEffectView *)view).effect = nil;
     }
-    [self clearCommentPanelBackgroundForView:view];
+
+    BOOL isTextContainer = [view isKindOfClass:[UILabel class]] ||
+                           [view isKindOfClass:[UITextView class]] ||
+                           ([view respondsToSelector:@selector(attributedText)] &&
+                            [view respondsToSelector:@selector(setAttributedText:)]);
+    if ([self shouldClearCommentBlurBackgroundsForView:view] || isTextContainer) {
+        [self clearCommentPanelBackgroundForView:view];
+    }
+
+    if ([view respondsToSelector:@selector(attributedText)] &&
+        [view respondsToSelector:@selector(setAttributedText:)]) {
+        id<DYYYAttributedTextContainer> textContainer = (id<DYYYAttributedTextContainer>)view;
+        NSAttributedString *attributedText = textContainer.attributedText;
+        NSAttributedString *cleanedText = DYYYAttributedTextWithoutCommentBackgrounds(attributedText);
+        if (cleanedText != attributedText) {
+            textContainer.attributedText = cleanedText;
+        }
+    }
 
     if ([view isKindOfClass:[UICollectionView class]]) {
         UICollectionView *collectionView = (UICollectionView *)view;
-        collectionView.backgroundView.backgroundColor = [UIColor clearColor];
+        [self clearCommentPanelBackgroundForView:collectionView.backgroundView];
     } else if ([view isKindOfClass:[UITableView class]]) {
         UITableView *tableView = (UITableView *)view;
-        tableView.backgroundView.backgroundColor = [UIColor clearColor];
+        [self clearCommentPanelBackgroundForView:tableView.backgroundView];
     } else if ([view isKindOfClass:[UICollectionViewCell class]]) {
-        ((UICollectionViewCell *)view).contentView.backgroundColor = [UIColor clearColor];
+        [self clearCommentPanelBackgroundForView:((UICollectionViewCell *)view).contentView];
     } else if ([view isKindOfClass:[UITableViewCell class]]) {
-        ((UITableViewCell *)view).contentView.backgroundColor = [UIColor clearColor];
+        [self clearCommentPanelBackgroundForView:((UITableViewCell *)view).contentView];
     }
 
+    if (depth >= maxDepth) {
+        return;
+    }
     for (UIView *subview in view.subviews) {
-        [self clearCommentBlurBackgroundsInView:subview depth:depth + 1];
+        [self clearCommentBlurBackgroundsInView:subview depth:depth + 1 maxDepth:maxDepth];
     }
 }
 

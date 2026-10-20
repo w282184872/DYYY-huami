@@ -720,6 +720,9 @@
 }
 
 + (void)fetchLocationWithGeonameId:(NSString *)geonameId completionHandler:(void (^)(NSDictionary *locationInfo, NSError *error))completionHandler {
+    if (!completionHandler) {
+        return;
+    }
     if (geonameId.length == 0) {
         if (completionHandler) {
             NSError *parameterError = [NSError errorWithDomain:DYYYGeonamesErrorDomain code:-2 userInfo:@{NSLocalizedDescriptionKey : @"GeoNames 参数无效"}];
@@ -737,19 +740,18 @@
         return;
     }
 
-    NSCharacterSet *allowedSet = [NSCharacterSet URLQueryAllowedCharacterSet];
-    NSString *encodedGeonameId = [geonameId stringByAddingPercentEncodingWithAllowedCharacters:allowedSet];
-    NSString *encodedUsername = [username stringByAddingPercentEncodingWithAllowedCharacters:allowedSet];
-    if (!encodedGeonameId || !encodedUsername) {
-        if (completionHandler) {
-            NSError *encodingError = [NSError errorWithDomain:DYYYGeonamesErrorDomain code:-3 userInfo:@{NSLocalizedDescriptionKey : @"GeoNames 参数编码失败"}];
-            completionHandler(nil, encodingError);
-        }
+    NSURLComponents *components = [NSURLComponents componentsWithString:@"https://secure.geonames.org/getJSON"];
+    components.queryItems = @[
+        [NSURLQueryItem queryItemWithName:@"geonameId" value:geonameId],
+        [NSURLQueryItem queryItemWithName:@"lang" value:@"zh"],
+        [NSURLQueryItem queryItemWithName:@"username" value:username]
+    ];
+    NSURL *url = components.URL;
+    if (!url) {
+        NSError *encodingError = [NSError errorWithDomain:DYYYGeonamesErrorDomain code:-3 userInfo:@{NSLocalizedDescriptionKey : @"GeoNames 参数编码失败"}];
+        completionHandler(nil, encodingError);
         return;
     }
-
-    NSString *urlString = [NSString stringWithFormat:@"https://secure.geonames.org/getJSON?geonameId=%@&lang=zh&username=%@", encodedGeonameId, encodedUsername];
-    NSURL *url = [NSURL URLWithString:urlString];
 
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url
                                                              completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
@@ -767,19 +769,26 @@
                                                                    return;
                                                                }
 
-                                                               NSError *jsonError;
-                                                               NSDictionary *jsonResult = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+                                                               NSError *jsonError = nil;
+                                                               id jsonObject = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
 
-                                                               if (jsonError) {
-                                                                   completionHandler(nil, jsonError);
+                                                               if (jsonError || ![jsonObject isKindOfClass:[NSDictionary class]]) {
+                                                                   NSError *shapeError = jsonError ?: [NSError errorWithDomain:DYYYGeonamesErrorDomain
+                                                                                                                         code:-5
+                                                                                                                     userInfo:@{NSLocalizedDescriptionKey : @"GeoNames 返回格式错误"}];
+                                                                   completionHandler(nil, shapeError);
                                                                    return;
                                                                }
 
-                                                               NSDictionary *status = jsonResult[@"status"];
+                                                               NSDictionary *jsonResult = (NSDictionary *)jsonObject;
+                                                               id statusValue = jsonResult[@"status"];
+                                                               NSDictionary *status = [statusValue isKindOfClass:[NSDictionary class]] ? statusValue : nil;
                                                                if (status && [status isKindOfClass:[NSDictionary class]]) {
                                                                    NSNumber *value = status[@"value"];
                                                                    NSInteger statusCode = value != nil ? value.integerValue : -1;
-                                                                   NSString *message = status[@"message"] ?: @"Geonames API 返回错误";
+                                                                   NSString *message = [status[@"message"] isKindOfClass:[NSString class]]
+                                                                                           ? status[@"message"]
+                                                                                           : @"Geonames API 返回错误";
 
                                                                    NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
                                                                    userInfo[NSLocalizedDescriptionKey] = message;

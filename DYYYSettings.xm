@@ -31,14 +31,15 @@ void *kViewModelKey = &kViewModelKey;
 }
 #endif
 
-static id dyyyRemoteConfigChangedToken = nil;
+static char kDYYYRemoteConfigChangedTokenKey;
 static char kDYYYWeatherViewGestureInstalledKey;
 static char kDYYYWeatherSubviewGestureInstalledKey;
 
-static void DYYYRemoveRemoteConfigObserver(void) {
-    if (dyyyRemoteConfigChangedToken) {
-        [[NSNotificationCenter defaultCenter] removeObserver:dyyyRemoteConfigChangedToken];
-        dyyyRemoteConfigChangedToken = nil;
+static void DYYYRemoveRemoteConfigObserver(id owner) {
+    id token = objc_getAssociatedObject(owner, &kDYYYRemoteConfigChangedTokenKey);
+    if (token) {
+        [[NSNotificationCenter defaultCenter] removeObserver:token];
+        objc_setAssociatedObject(owner, &kDYYYRemoteConfigChangedTokenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
 }
 %hook AWESettingBaseViewController
@@ -54,7 +55,7 @@ static void DYYYRemoveRemoteConfigObserver(void) {
 }
 
 - (void)dealloc {
-    DYYYRemoveRemoteConfigObserver();
+    DYYYRemoveRemoteConfigObserver(self);
     %orig;
 }
 %end
@@ -837,7 +838,7 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
             @"imageName" : @"ic_comment_outlined_20"},
           @{@"identifier" : @"DYYYCommentBlurTransparent",
             @"title" : @"毛玻璃透明度",
-            @"detail" : @"0不透明 1全透明",
+            @"detail" : @"0.000-1.000，1全透明",
             @"cellType" : @26,
             @"imageName" : @"ic_eye_outlined_20"},
       ];
@@ -2258,12 +2259,14 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
         }
       };
 
-      [[NSNotificationCenter defaultCenter] addObserverForName:DYYY_REMOTE_CONFIG_CHANGED_NOTIFICATION
-                                                        object:nil
-                                                         queue:[NSOperationQueue mainQueue]
-                                                    usingBlock:^(NSNotification *_Nonnull note) {
-                                                      refreshConfigConflictState();
-                                                    }];
+      DYYYRemoveRemoteConfigObserver(self);
+      id token = [[NSNotificationCenter defaultCenter] addObserverForName:DYYY_REMOTE_CONFIG_CHANGED_NOTIFICATION
+                                                                    object:nil
+                                                                     queue:[NSOperationQueue mainQueue]
+                                                                usingBlock:^(NSNotification *_Nonnull note) {
+                                                                  refreshConfigConflictState();
+                                                                }];
+      objc_setAssociatedObject(self, &kDYYYRemoteConfigChangedTokenKey, token, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
       for (NSDictionary *dict in hotUpdateSettings) {
           AWESettingItemModel *item = [DYYYSettingsHelper createSettingItem:dict];
@@ -2563,12 +2566,39 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
                       }
 
                       if (!message) {
-                          // 在同一个目录下创建一个临时文件 URL 以确保原子性
-                          NSString *tempFileName = [NSUUID UUID].UUIDString;
-                          NSURL *temporaryURL = [NSURL fileURLWithPath:[dyyyFolderPath stringByAppendingPathComponent:tempFileName]];
+                          NSData *sourceData = [NSData dataWithContentsOfURL:sourceURL options:0 error:&error];
+                          id jsonObject = sourceData ? [NSJSONSerialization JSONObjectWithData:sourceData options:0 error:&error] : nil;
+                          BOOL validSchema = [jsonObject isKindOfClass:[NSDictionary class]];
+                          if (validSchema) {
+                              NSDictionary *config = (NSDictionary *)jsonObject;
+                              id modeValue = config[@"mode"];
+                              id dataValue = config[@"data"];
+                              validSchema = (!modeValue || [modeValue isKindOfClass:[NSString class]]) &&
+                                            (!dataValue || [dataValue isKindOfClass:[NSDictionary class]]);
+                          }
+                          if (!validSchema) {
+                              message = @"配置格式错误，必须是包含有效 data 字典的 JSON";
+                          }
 
-                          if ([fileManager copyItemAtURL:sourceURL toURL:temporaryURL error:&error]) {
-                              if ([fileManager replaceItemAtURL:destinationURL withItemAtURL:temporaryURL backupItemName:nil options:0 resultingItemURL:nil error:&error]) {
+                          if (!message) {
+                              // 在同一个目录下创建临时文件，验证通过后再原子替换。
+                              NSString *tempFileName = [NSUUID UUID].UUIDString;
+                              NSURL *temporaryURL = [NSURL fileURLWithPath:[dyyyFolderPath stringByAppendingPathComponent:tempFileName]];
+                              BOOL wroteTemporaryFile = [sourceData writeToURL:temporaryURL options:NSDataWritingAtomic error:&error];
+                              BOOL replacedFile = NO;
+                              if (wroteTemporaryFile) {
+                                  if ([fileManager fileExistsAtPath:destinationURL.path]) {
+                                      replacedFile = [fileManager replaceItemAtURL:destinationURL
+                                                                      withItemAtURL:temporaryURL
+                                                                     backupItemName:nil
+                                                                            options:0
+                                                                   resultingItemURL:nil
+                                                                              error:&error];
+                                  } else {
+                                      replacedFile = [fileManager moveItemAtURL:temporaryURL toURL:destinationURL error:&error];
+                                  }
+                              }
+                              if (wroteTemporaryFile && replacedFile) {
                                   [DYYYABTestHook cleanLocalABTestData];
                                   [DYYYABTestHook loadLocalABTestConfig];
                                   [DYYYABTestHook applyFixedABTestData];
@@ -2580,8 +2610,6 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
                                   [fileManager removeItemAtURL:temporaryURL error:nil];
                                   message = [NSString stringWithFormat:@"导入失败 (替换文件失败): %@", error.localizedDescription];
                               }
-                          } else {
-                              message = [NSString stringWithFormat:@"导入失败 (复制到临时文件失败): %@", error.localizedDescription];
                           }
                       }
                       // 回到主线程显示 Toast 和更新 UI
@@ -3344,8 +3372,16 @@ speedSettingsItem.detail = trimmedText;
               return;
           }
 
-          NSDictionary *iconBase64Dict = dyyySettings[@"DYYYIconsBase64"];
+          NSMutableDictionary *cleanSettings = [dyyySettings mutableCopy];
+          [cleanSettings removeObjectForKey:@"DYYYIconsBase64"];
+
+          id iconBase64Value = dyyySettings[@"DYYYIconsBase64"];
+          NSDictionary *iconBase64Dict = [iconBase64Value isKindOfClass:[NSDictionary class]] ? iconBase64Value : nil;
           if (iconBase64Dict && [iconBase64Dict isKindOfClass:[NSDictionary class]]) {
+              NSSet<NSString *> *allowedIconNames = [NSSet setWithArray:@[
+                  @"like_before.png", @"like_after.png", @"comment.png", @"unfavorite.png",
+                  @"favorite.png", @"share.png", @"tab_plus.png", @"qingping.gif"
+              ]];
               NSString *documentsPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
               NSString *dyyyFolderPath = [documentsPath stringByAppendingPathComponent:@"DYYY"];
               NSFileManager *fileManager = [NSFileManager defaultManager];
@@ -3355,25 +3391,33 @@ speedSettingsItem.detail = trimmedText;
               }
 
               for (NSString *iconFileName in iconBase64Dict) {
+                  if (![allowedIconNames containsObject:iconFileName] ||
+                      ![iconFileName isEqualToString:iconFileName.lastPathComponent]) {
+                      continue;
+                  }
                   NSString *base64String = iconBase64Dict[iconFileName];
                   if (![base64String isKindOfClass:[NSString class]]) {
                       continue;
                   }
                   NSData *imageData = [[NSData alloc] initWithBase64EncodedString:base64String options:0];
-                  if (imageData) {
+                  if (imageData.length > 0 && imageData.length <= 10 * 1024 * 1024) {
                       NSString *iconPath = [dyyyFolderPath stringByAppendingPathComponent:iconFileName];
                       [imageData writeToFile:iconPath atomically:YES];
                   }
               }
-
-              NSMutableDictionary *cleanSettings = [dyyySettings mutableCopy];
-              [cleanSettings removeObjectForKey:@"DYYYIconsBase64"];
-              dyyySettings = cleanSettings;
           }
 
           NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-          for (NSString *key in dyyySettings) {
-              [defaults setObject:dyyySettings[key] forKey:key];
+          for (NSString *key in cleanSettings) {
+              id value = cleanSettings[key];
+              BOOL supportedValue = [value isKindOfClass:[NSString class]] ||
+                                    [value isKindOfClass:[NSNumber class]] ||
+                                    [value isKindOfClass:[NSArray class]] ||
+                                    [value isKindOfClass:[NSDictionary class]] ||
+                                    [value isKindOfClass:[NSNull class]];
+              if ([key hasPrefix:@"DYYY"] && supportedValue) {
+                  [defaults setObject:value forKey:key];
+              }
           }
 
           dispatch_async(dispatch_get_main_queue(), ^{

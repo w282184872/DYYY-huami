@@ -235,15 +235,21 @@ static void DYYYApplyTabBarHeightToCurrentABTestDataIfNeeded(void) {
         NSData *jsonData = [NSData dataWithContentsOfFile:jsonFilePath options:0 error:&error];
 
         if (jsonData) {
-            NSDictionary *loadedData = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&error];
+            id loadedObject = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&error];
+            NSDictionary *loadedData = [loadedObject isKindOfClass:[NSDictionary class]] ? loadedObject : nil;
             if (loadedData && !error) {
                 id modeValue = loadedData[@"mode"];
                 s_fileMode = nil;
                 if ([modeValue isKindOfClass:[NSString class]]) {
                     s_fileMode = [modeValue lowercaseString];
                 }
-                NSDictionary *actualData = loadedData[@"data"];
-                if (!actualData) {
+                id dataValue = loadedData[@"data"];
+                NSDictionary *actualData = [dataValue isKindOfClass:[NSDictionary class]] ? dataValue : nil;
+                if (dataValue && !actualData) {
+                    s_localABTestData = nil;
+                    return;
+                }
+                if (!dataValue) {
                     NSMutableDictionary *tmp = [loadedData mutableCopy];
                     [tmp removeObjectForKey:@"mode"];
                     actualData = [tmp copy];
