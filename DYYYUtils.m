@@ -387,6 +387,8 @@ static BOOL DYYYUtilsWriteStaticImageToGIF(UIImage *image, NSURL *gifURL) {
 + (void)clearCommentPanelBackdropObstructionsInRootView:(UIView *)rootView keepingView:(UIView *)keepView;
 + (void)clearCommentPanelBackgroundForView:(UIView *)view;
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth;
++ (id)profileDetailValueForKey:(NSString *)key onObject:(id)object;
++ (BOOL)profileDetailStringMatches:(NSString *)value;
 @end
 
 @implementation DYYYUtils
@@ -742,6 +744,188 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
 
     return [self findViewControllerOfClass:targetClass inViewController:vc.presentedViewController];
+}
+
++ (id)profileDetailValueForKey:(NSString *)key onObject:(id)object {
+    if (key.length == 0 || !object || ![object respondsToSelector:NSSelectorFromString(key)]) {
+        return nil;
+    }
+
+    @try {
+        return [object valueForKey:key];
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+}
+
++ (BOOL)profileDetailStringMatches:(NSString *)value {
+    if (![value isKindOfClass:[NSString class]] || value.length == 0) {
+        return NO;
+    }
+
+    NSString *lowercaseValue = value.lowercaseString;
+    NSArray<NSString *> *profileReferTokens = @[
+        @"personal_homepage",
+        @"user_homepage",
+        @"profile_video",
+        @"profile_detail",
+        @"user_profile_video"
+    ];
+    for (NSString *token in profileReferTokens) {
+        if ([lowercaseValue containsString:token]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
++ (BOOL)isProfileVideoDetailContext:(id)context {
+    if (!context) {
+        return NO;
+    }
+
+    NSHashTable *visited = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    id current = context;
+    BOOL hasDetailMarker = NO;
+    BOOL hasProfileMarker = NO;
+    NSArray<NSString *> *referKeys = @[@"detailReferString", @"referString", @"detailEnterFrom", @"enterFrom", @"previousPage"];
+    NSArray<NSString *> *relatedContextKeys = @[@"parentVC", @"viewController", @"currentViewController", @"containerVC"];
+
+    for (NSUInteger depth = 0; current && depth < 32; depth++) {
+        if ([visited containsObject:current]) {
+            break;
+        }
+        [visited addObject:current];
+
+        NSString *className = NSStringFromClass([current class]);
+        if ([className containsString:@"AWEAwemeDetailTable"] ||
+            [className containsString:@"AWEAwemeDetailCell"] ||
+            [className containsString:@"AWEMixVideoPanelDetailTable"]) {
+            hasDetailMarker = YES;
+        }
+
+        for (NSString *key in referKeys) {
+            id value = [self profileDetailValueForKey:key onObject:current];
+            if ([value isKindOfClass:[NSString class]] && [self profileDetailStringMatches:value]) {
+                hasProfileMarker = YES;
+                break;
+            }
+        }
+
+        if (hasDetailMarker) {
+            id homepageUser = [self profileDetailValueForKey:@"homepageUser" onObject:current];
+            if (homepageUser && homepageUser != [NSNull null]) {
+                hasProfileMarker = YES;
+            }
+        }
+
+        for (NSString *key in relatedContextKeys) {
+            id relatedContext = [self profileDetailValueForKey:key onObject:current];
+            if (!relatedContext || relatedContext == current || [visited containsObject:relatedContext]) {
+                continue;
+            }
+            NSString *relatedClassName = NSStringFromClass([relatedContext class]);
+            if ([relatedClassName containsString:@"AWEAwemeDetailTable"] ||
+                [relatedClassName containsString:@"AWEAwemeDetailCell"] ||
+                [relatedClassName containsString:@"AWEMixVideoPanelDetailTable"]) {
+                hasDetailMarker = YES;
+            }
+            for (NSString *referKey in referKeys) {
+                id value = [self profileDetailValueForKey:referKey onObject:relatedContext];
+                if ([value isKindOfClass:[NSString class]] && [self profileDetailStringMatches:value]) {
+                    hasProfileMarker = YES;
+                    break;
+                }
+            }
+            if (hasDetailMarker) {
+                id homepageUser = [self profileDetailValueForKey:@"homepageUser" onObject:relatedContext];
+                if (homepageUser && homepageUser != [NSNull null]) {
+                    hasProfileMarker = YES;
+                }
+            }
+        }
+
+        if (hasDetailMarker && hasProfileMarker) {
+            return YES;
+        }
+
+        if ([current isKindOfClass:[UIViewController class]]) {
+            current = [(UIViewController *)current parentViewController];
+        } else if ([current isKindOfClass:[UIView class]]) {
+            current = [(UIView *)current nextResponder];
+        } else if ([current respondsToSelector:@selector(nextResponder)]) {
+            current = [current nextResponder];
+        } else {
+            current = nil;
+        }
+    }
+
+    return NO;
+}
+
++ (BOOL)isCommentPanelContext:(id)context {
+    if (!context) {
+        return NO;
+    }
+
+    NSHashTable *visited = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    id current = context;
+    for (NSUInteger depth = 0; current && depth < 32; depth++) {
+        if ([visited containsObject:current]) {
+            break;
+        }
+        [visited addObject:current];
+
+        NSString *className = NSStringFromClass([current class]);
+        if ([className containsString:@"AWECommentContainerViewController"] ||
+            [className containsString:@"AWECommentPanelContainerSwiftImpl"] ||
+            [className containsString:@"AWECommentPanelListSwiftImpl"]) {
+            return YES;
+        }
+
+        if ([current isKindOfClass:[UIViewController class]]) {
+            current = [(UIViewController *)current parentViewController];
+        } else if ([current isKindOfClass:[UIView class]]) {
+            current = [(UIView *)current nextResponder];
+        } else if ([current respondsToSelector:@selector(nextResponder)]) {
+            current = [current nextResponder];
+        } else {
+            current = nil;
+        }
+    }
+
+    return NO;
+}
+
++ (BOOL)isCommentPanelPresentedInContext:(id)context {
+    if (!context) {
+        return NO;
+    }
+
+    NSHashTable *visited = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    id current = context;
+    for (NSUInteger depth = 0; current && depth < 32; depth++) {
+        if ([visited containsObject:current]) {
+            break;
+        }
+        [visited addObject:current];
+
+        if ([current respondsToSelector:@selector(isCommentVCShowing)]) {
+            return [current isCommentVCShowing];
+        }
+
+        if ([current isKindOfClass:[UIViewController class]]) {
+            current = [(UIViewController *)current parentViewController];
+        } else if ([current isKindOfClass:[UIView class]]) {
+            current = [(UIView *)current nextResponder];
+        } else if ([current respondsToSelector:@selector(nextResponder)]) {
+            current = [current nextResponder];
+        } else {
+            current = nil;
+        }
+    }
+
+    return NO;
 }
 
 + (UIResponder *)findAncestorResponderOfClass:(Class)targetClass fromView:(UIView *)view {

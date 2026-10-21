@@ -1054,6 +1054,12 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
       // 【视频播放界面】分类
       NSMutableArray<AWESettingItemModel *> *videoUiItems = [NSMutableArray array];
       NSArray *videoUiSettings = @[
+          @{@"identifier" : DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY,
+            @"title" : @"隐藏主页视频详情底栏背景",
+            @"subTitle" : @"仅影响个人主页进入的视频详情，评论和按钮保持原布局",
+            @"detail" : @"",
+            @"cellType" : @37,
+            @"imageName" : @"ic_eyeslash_outlined_16"},
           @{@"identifier" : @"DYYYHideEntry",
             @"title" : @"隐藏全屏观看",
             @"subTitle" : @"原始位置可点击",

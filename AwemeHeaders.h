@@ -444,6 +444,14 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @end
 
 @interface AWEAwemeDetailTableViewCell : UIView
+@property(nonatomic, copy) NSString *detailReferString;
+@property(nonatomic, copy) NSString *detailEnterFrom;
+@property(nonatomic, strong) id homepageUser;
+- (BOOL)playerNotCoverBottomBarEnable;
+@end
+
+@interface AWEFeedGeneralViewCell : UIView
+- (BOOL)playerNotCoverBottomBarEnable;
 @end
 
 @interface IESLiveFeedDrawerEntranceView : UIView
@@ -1349,6 +1357,7 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @end
 
 @interface AWEPlayInteractionUserAvatarView : UIView
+@property(nonatomic, strong) AWEPlayInteractionFollowPromptView *followPromptView;
 @end
 
 @interface AWELeftSideBarViewController : UIViewController <UICollectionViewDelegate, UICollectionViewDataSource>

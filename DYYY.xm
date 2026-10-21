@@ -3117,14 +3117,28 @@ static NSArray *DYYYIMMenuItemsByAddingDownloadAction(NSArray *menuItems, id cel
 %hook LOTAnimationView
 - (void)layoutSubviews {
     %orig;
-    // 确保只有头像的LOTAnimationView才则执行该逻辑, 防止误杀
-    if ([self.superview isKindOfClass:%c(AWEPlayInteractionFollowPromptView)]) {
-        // 检查是否需要隐藏加号
-        if (DYYYGetBool(@"DYYYHideLOTAnimationView") || DYYYGetBool(@"DYYYHideFollowPromptView")) {
-            [self removeFromSuperview];
-            return;
-        }
-        // 应用透明度设置
+    UIView *followPromptView = (UIView *)[DYYYUtils findAncestorResponderOfClass:%c(AWEPlayInteractionFollowPromptView) fromView:self];
+    if (!followPromptView) {
+        return;
+    }
+
+    if (DYYYGetBool(@"DYYYHideFollowPromptView")) {
+        followPromptView.hidden = YES;
+        followPromptView.userInteractionEnabled = NO;
+        self.hidden = YES;
+        self.userInteractionEnabled = NO;
+    } else if (DYYYGetBool(@"DYYYHideLOTAnimationView")) {
+        followPromptView.hidden = NO;
+        followPromptView.userInteractionEnabled = YES;
+        self.hidden = NO;
+        self.alpha = 0.0;
+        self.userInteractionEnabled = NO;
+    } else {
+        followPromptView.hidden = NO;
+        followPromptView.userInteractionEnabled = YES;
+        self.hidden = NO;
+        self.alpha = 1.0;
+        self.userInteractionEnabled = YES;
         NSString *transparencyValue = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYAvatarViewTransparency"];
         if (transparencyValue && transparencyValue.length > 0) {
             CGFloat alphaValue = [transparencyValue floatValue];
@@ -3650,13 +3664,28 @@ static NSArray *DYYYIMMenuItemsByAddingDownloadAction(NSArray *menuItems, id cel
 - (void)layoutSubviews {
     %orig;
 
-    NSString *accessibilityLabel = self.accessibilityLabel;
+    BOOL removePrompt = DYYYGetBool(@"DYYYHideFollowPromptView") || DYYYGetBool(@"DYYYHideAvatarButton");
+    BOOL hidePromptVisual = DYYYGetBool(@"DYYYHideLOTAnimationView");
 
-    if ([accessibilityLabel isEqualToString:@"关注"]) {
-        if (DYYYGetBool(@"DYYYHideAvatarButton") || DYYYGetBool(@"DYYYHideFollowPromptView")) {
-            self.userInteractionEnabled = NO;
-            self.hidden = YES;
-            return;
+    if (removePrompt) {
+        self.userInteractionEnabled = NO;
+        self.hidden = YES;
+        return;
+    }
+
+    if (hidePromptVisual) {
+        self.hidden = NO;
+        self.userInteractionEnabled = YES;
+        for (UIView *subview in self.subviews) {
+            subview.hidden = YES;
+            subview.userInteractionEnabled = NO;
+        }
+    } else {
+        self.hidden = NO;
+        self.userInteractionEnabled = YES;
+        for (UIView *subview in self.subviews) {
+            subview.hidden = NO;
+            subview.userInteractionEnabled = YES;
         }
     }
 }
@@ -5880,26 +5909,54 @@ static NSHashTable *processedParentViews = nil;
 - (void)layoutSubviews {
     %orig;
 
-    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideFollowPromptView"]) {
+    AWEPlayInteractionFollowPromptView *followPromptView =
+        (AWEPlayInteractionFollowPromptView *)[DYYYUtils findSubviewOfClass:%c(AWEPlayInteractionFollowPromptView) inContainer:self];
+    if (!followPromptView) {
         return;
     }
 
-    static char kDYAvatarCacheKey;
-    NSArray *viewCache = objc_getAssociatedObject(self, &kDYAvatarCacheKey);
-    if (!viewCache) {
-        NSMutableArray *tmp = [NSMutableArray array];
-        for (UIView *subview in self.subviews) {
-            if ([subview isMemberOfClass:[UIView class]]) {
-                [tmp addObject:subview];
-            }
+    if (DYYYGetBool(@"DYYYHideFollowPromptView")) {
+        followPromptView.hidden = YES;
+        followPromptView.userInteractionEnabled = NO;
+    } else if (DYYYGetBool(@"DYYYHideLOTAnimationView")) {
+        followPromptView.hidden = NO;
+        followPromptView.userInteractionEnabled = YES;
+        for (UIView *subview in followPromptView.subviews) {
+            subview.hidden = YES;
+            subview.userInteractionEnabled = NO;
         }
-        viewCache = [tmp copy];
-        objc_setAssociatedObject(self, &kDYAvatarCacheKey, viewCache, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    } else {
+        followPromptView.hidden = NO;
+        followPromptView.userInteractionEnabled = YES;
+        for (UIView *subview in followPromptView.subviews) {
+            subview.hidden = NO;
+            subview.userInteractionEnabled = YES;
+        }
+    }
+}
+
+- (void)setFollowPromptView:(AWEPlayInteractionFollowPromptView *)followPromptView {
+    %orig;
+    if (!followPromptView) {
+        return;
     }
 
-    for (UIView *container in viewCache) {
-        for (UIView *child in container.subviews) {
-            child.alpha = 0.0;
+    if (DYYYGetBool(@"DYYYHideFollowPromptView")) {
+        followPromptView.hidden = YES;
+        followPromptView.userInteractionEnabled = NO;
+    } else if (DYYYGetBool(@"DYYYHideLOTAnimationView")) {
+        followPromptView.hidden = NO;
+        followPromptView.userInteractionEnabled = YES;
+        for (UIView *subview in followPromptView.subviews) {
+            subview.hidden = YES;
+            subview.userInteractionEnabled = NO;
+        }
+    } else {
+        followPromptView.hidden = NO;
+        followPromptView.userInteractionEnabled = YES;
+        for (UIView *subview in followPromptView.subviews) {
+            subview.hidden = NO;
+            subview.userInteractionEnabled = YES;
         }
     }
 }
@@ -6524,10 +6581,9 @@ static Class tabBarButtonClass = nil;
     }
 
     // 背景和分隔线处理
-    BOOL hideBottomBg = DYYYGetBool(@"DYYYHideBottomBg");
     BOOL enableFullScreen = DYYYGetBool(@"DYYYEnableFullScreen");
 
-    if (hideBottomBg || enableFullScreen) {
+    if (enableFullScreen) {
         if (self.skinContainerView) {
             self.skinContainerView.hidden = YES;
         }
@@ -6535,22 +6591,20 @@ static Class tabBarButtonClass = nil;
         BOOL isHomeSelected = NO;
         BOOL isFriendsSelected = NO;
 
-        if (enableFullScreen && !hideBottomBg) {
-            for (UIView *subview in self.subviews) {
-                if ([subview isKindOfClass:generalButtonClass]) {
-                    AWENormalModeTabBarGeneralButton *button = (AWENormalModeTabBarGeneralButton *)subview;
-                    if (button.status == 2) {
-                        if ([button.accessibilityLabel isEqualToString:@"首页"])
-                            isHomeSelected = YES;
-                        else if ([button.accessibilityLabel containsString:@"朋友"])
-                            isFriendsSelected = YES;
-                    }
+        for (UIView *subview in self.subviews) {
+            if ([subview isKindOfClass:generalButtonClass]) {
+                AWENormalModeTabBarGeneralButton *button = (AWENormalModeTabBarGeneralButton *)subview;
+                if (button.status == 2) {
+                    if ([button.accessibilityLabel isEqualToString:@"首页"])
+                        isHomeSelected = YES;
+                    else if ([button.accessibilityLabel containsString:@"朋友"])
+                        isFriendsSelected = YES;
                 }
             }
         }
 
         BOOL hideFriendsButton = DYYYGetBool(@"DYYYHideFriendsButton");
-        BOOL shouldHideBackgrounds = hideBottomBg || (enableFullScreen && (isHomeSelected || (isFriendsSelected && !hideFriendsButton)));
+        BOOL shouldHideBackgrounds = isHomeSelected || (isFriendsSelected && !hideFriendsButton);
 
         // 单次遍历处理所有背景和分割线
         for (UIView *subview in self.subviews) {
@@ -6585,7 +6639,6 @@ static Class tabBarButtonClass = nil;
 
     BOOL disableHomeRefresh = DYYYGetBool(@"DYYYDisableHomeRefresh");
     BOOL enableFullScreen = DYYYGetBool(@"DYYYEnableFullScreen");
-    BOOL hideBottomBg = DYYYGetBool(@"DYYYHideBottomBg");
     BOOL hideFriendsButton = DYYYGetBool(@"DYYYHideFriendsButton");
 
     BOOL isHomeSelected = NO;
@@ -6611,17 +6664,12 @@ static Class tabBarButtonClass = nil;
         }
     }
 
-    if (hideBottomBg || enableFullScreen) {
+    if (enableFullScreen) {
         if (self.skinContainerView) {
             self.skinContainerView.hidden = YES;
         }
 
-        BOOL shouldHideBackgrounds = NO;
-        if (hideBottomBg) {
-            shouldHideBackgrounds = YES;
-        } else if (enableFullScreen) {
-            shouldHideBackgrounds = isHomeSelected || (isFriendsSelected && !hideFriendsButton);
-        }
+        BOOL shouldHideBackgrounds = isHomeSelected || (isFriendsSelected && !hideFriendsButton);
 
         // 处理所有背景和分割线
         for (UIView *subview in self.subviews) {
@@ -6976,6 +7024,11 @@ static Class tabBarButtonClass = nil;
 
 %hook AWECommentContainerViewController
 
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    dyyyCommentViewVisible = YES;
+}
+
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     dyyyCommentViewVisible = YES;
@@ -7026,7 +7079,7 @@ static Class tabBarButtonClass = nil;
 
 %new
 - (void)dyyyApplyCommentBlurIfNeeded {
-    if (!DYYYGetBool(@"DYYYEnableCommentBlur")) {
+    if (!DYYYGetBool(@"DYYYEnableCommentBlur") || ![DYYYUtils isCommentPanelContext:self]) {
         return;
     }
 
@@ -7042,7 +7095,7 @@ static Class tabBarButtonClass = nil;
 - (void)layoutSubviews {
     %orig;
 
-    if (!DYYYGetBool(@"DYYYEnableCommentBlur")) {
+    if (!DYYYGetBool(@"DYYYEnableCommentBlur") || ![DYYYUtils isCommentPanelContext:self]) {
         return;
     }
 
@@ -7133,7 +7186,9 @@ static Class tabBarButtonClass = nil;
         }
     }
 
-    if (DYYYGetBool(@"DYYYEnableFullScreen") || DYYYGetBool(@"DYYYEnableCommentBlur")) {
+    BOOL cleanCommentBackdrops = DYYYGetBool(@"DYYYEnableCommentBlur") &&
+                                 [DYYYUtils isCommentPanelPresentedInContext:self];
+    if (DYYYGetBool(@"DYYYEnableFullScreen") || cleanCommentBackdrops) {
         UIViewController *vc = [DYYYUtils firstAvailableViewControllerFromView:self];
         if ([vc isKindOfClass:%c(AWEPlayInteractionViewController)]) {
             for (UIView *subview in self.subviews) {
@@ -7309,13 +7364,7 @@ static Class tabBarButtonClass = nil;
     }
 
     if (!DYYYGetBool(@"DYYYEnableFullScreen")) {
-        NSString *currentReferString = [self respondsToSelector:@selector(referString)] ? self.referString : nil;
-        BOOL isProfileDetail = ([currentReferString containsString:@"personal_homepage"] ||
-                                [currentReferString containsString:@"user_homepage"] ||
-                                [currentReferString containsString:@"profile_video"]);
-        if (!(DYYYGetBool(@"DYYYHideBottomBg") && isProfileDetail)) {
-            return;
-        }
+        return;
     }
 
     UIViewController *directParentVC = self.parentViewController;
@@ -7323,21 +7372,12 @@ static Class tabBarButtonClass = nil;
     int maxIterations = 3;
     int count = 0;
 
-    BOOL isProfileDetail = NO;
-    do {
-        if ([parentVC isKindOfClass:%c(AWEAwemeDetailTableViewController)]) {
-            isProfileDetail = YES;
-            break;
-        }
+    while (parentVC && count < maxIterations) {
         if ([parentVC isKindOfClass:%c(AFDPlayRemoteFeedTableViewController)]) {
             return;
         }
         parentVC = parentVC.parentViewController;
         count++;
-    } while (parentVC && count < maxIterations);
-
-    if (!isProfileDetail) {
-        return;
     }
 
     if (!self.view.superview) {
@@ -7357,20 +7397,6 @@ static Class tabBarButtonClass = nil;
     BOOL useFullHeight = [currentReferString isEqualToString:@"general_search"] || [currentReferString isEqualToString:@"search_result"] || [currentReferString isEqualToString:@"search_ecommerce"] ||
                          [currentReferString isEqualToString:@"close_friends_moment"] || [currentReferString isEqualToString:@"offline_mode"] || [currentReferString isEqualToString:@"challenge"] ||
                          [currentReferString isEqualToString:@"general_search_scan"] || currentReferString == nil;
-    if ([currentReferString containsString:@"personal_homepage"] ||
-        [currentReferString containsString:@"user_homepage"] ||
-        [currentReferString containsString:@"profile_video"]) {
-        useFullHeight = YES;
-    }
-
-    if (DYYYGetBool(@"DYYYHideBottomBg")) {
-        useFullHeight = YES;
-    }
-
-    if (!DYYYGetBool(@"DYYYEnableFullScreen") && !useFullHeight) {
-        return;
-    }
-
     if (!useFullHeight && [currentReferString isEqualToString:@"co_play_watch"]) {
         Class richContentVCClass = NSClassFromString(@"AWEFriendsImpl.RichContentNewListViewController");
         if (richContentVCClass && [directParentVC isKindOfClass:richContentVCClass]) {
@@ -8364,6 +8390,28 @@ static Class TagViewClass = nil;
 
 %hook TTPlayerView
 
+- (void)setScaleType:(NSInteger)scaleType {
+    static char kDYYYProfileDetailLockedScaleTypeKey;
+    BOOL shouldLockForComments = DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+                                 [DYYYUtils isProfileVideoDetailContext:self] &&
+                                 [DYYYUtils isCommentPanelPresentedInContext:self];
+
+    if (shouldLockForComments) {
+        NSNumber *lockedScaleType = objc_getAssociatedObject(self, &kDYYYProfileDetailLockedScaleTypeKey);
+        if (!lockedScaleType) {
+            lockedScaleType = @(self.scaleType);
+            objc_setAssociatedObject(self, &kDYYYProfileDetailLockedScaleTypeKey, lockedScaleType, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if (lockedScaleType.integerValue != scaleType) {
+            return;
+        }
+    } else {
+        objc_setAssociatedObject(self, &kDYYYProfileDetailLockedScaleTypeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
+    %orig(scaleType);
+}
+
 - (void)layoutSubviews {
     %orig;
 
@@ -8415,6 +8463,30 @@ static Class TagViewClass = nil;
     if (parent) {
         parent.backgroundColor = self.backgroundColor;
     }
+}
+
+%end
+
+%hook AWEAwemeDetailTableViewCell
+
+- (BOOL)playerNotCoverBottomBarEnable {
+    if (DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+        [DYYYUtils isProfileVideoDetailContext:self]) {
+        return NO;
+    }
+    return %orig;
+}
+
+%end
+
+%hook AWEFeedGeneralViewCell
+
+- (BOOL)playerNotCoverBottomBarEnable {
+    if (DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+        [DYYYUtils isProfileVideoDetailContext:self]) {
+        return NO;
+    }
+    return %orig;
 }
 
 %end

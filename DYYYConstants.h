@@ -4,7 +4,9 @@
 #define DYYY_NAME @"DYYY"
 #define DYYY_SETTINGS_NAME @"DYYY设置"
 
-#define DYYY_VERSION @"40.7.0-13"
+#define DYYY_VERSION @"40.7.0-14"
+
+#define DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY @"DYYYProfileDetailHideBottomBg"
 
 #define DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION @"DYYYCommentBlurTransparencyDidChangeNotification"
 #define DYYY_COMMENT_BLUR_TRANSPARENCY_PERCENT_KEY @"DYYYCommentBlurTransparencyPercent"

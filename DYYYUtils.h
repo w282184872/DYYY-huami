@@ -38,6 +38,15 @@ NS_ASSUME_NONNULL_BEGIN
 + (UIViewController *)firstAvailableViewControllerFromView:(UIView *)view;
 + (UIViewController *)findViewControllerOfClass:(Class)targetClass inViewController:(UIViewController *)vc;
 
+/* 判断对象是否位于个人主页进入的视频详情页 */
++ (BOOL)isProfileVideoDetailContext:(id)context;
+
+/* 判断对象是否位于评论面板容器内 */
++ (BOOL)isCommentPanelContext:(id)context;
+
+/* 判断对象所属的播放交互页当前是否已打开评论面板 */
++ (BOOL)isCommentPanelPresentedInContext:(id)context;
+
 + (UIResponder *)findAncestorResponderOfClass:(Class)targetClass fromView:(UIView *)view;
 
 /*
