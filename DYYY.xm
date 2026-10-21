@@ -7309,7 +7309,13 @@ static Class tabBarButtonClass = nil;
     }
 
     if (!DYYYGetBool(@"DYYYEnableFullScreen")) {
-        return;
+        NSString *currentReferString = [self respondsToSelector:@selector(referString)] ? self.referString : nil;
+        BOOL isProfileDetail = ([currentReferString containsString:@"personal_homepage"] ||
+                                [currentReferString containsString:@"user_homepage"] ||
+                                [currentReferString containsString:@"profile_video"]);
+        if (!(DYYYGetBool(@"DYYYHideBottomBg") && isProfileDetail)) {
+            return;
+        }
     }
 
     UIViewController *directParentVC = self.parentViewController;
@@ -7317,12 +7323,21 @@ static Class tabBarButtonClass = nil;
     int maxIterations = 3;
     int count = 0;
 
-    while (parentVC && count < maxIterations) {
+    BOOL isProfileDetail = NO;
+    do {
+        if ([parentVC isKindOfClass:%c(AWEAwemeDetailTableViewController)]) {
+            isProfileDetail = YES;
+            break;
+        }
         if ([parentVC isKindOfClass:%c(AFDPlayRemoteFeedTableViewController)]) {
             return;
         }
         parentVC = parentVC.parentViewController;
         count++;
+    } while (parentVC && count < maxIterations);
+
+    if (!isProfileDetail) {
+        return;
     }
 
     if (!self.view.superview) {
@@ -7346,6 +7361,14 @@ static Class tabBarButtonClass = nil;
         [currentReferString containsString:@"user_homepage"] ||
         [currentReferString containsString:@"profile_video"]) {
         useFullHeight = YES;
+    }
+
+    if (DYYYGetBool(@"DYYYHideBottomBg")) {
+        useFullHeight = YES;
+    }
+
+    if (!DYYYGetBool(@"DYYYEnableFullScreen") && !useFullHeight) {
+        return;
     }
 
     if (!useFullHeight && [currentReferString isEqualToString:@"co_play_watch"]) {

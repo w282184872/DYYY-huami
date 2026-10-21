@@ -986,14 +986,6 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
       // 【主界面元素】分类
       NSMutableArray<AWESettingItemModel *> *mainUiItems = [NSMutableArray array];
       NSArray *mainUiSettings = @[
-          @{
-              @"identifier" : @"DYYYHideBottomBg",
-              @"title" : @"隐藏底栏背景",
-              @"subTitle" : @"完全透明化底栏，可能需要配合首页全屏使用",
-              @"detail" : @"",
-              @"cellType" : @37,
-              @"imageName" : @"ic_eyeslash_outlined_16"
-          },
           @{@"identifier" : @"DYYYHideBottomDot",
             @"title" : @"隐藏底栏红点",
             @"detail" : @"",

@@ -924,6 +924,19 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     return isCommentPanelText || isCommentInputSurface || isCommentBizLabel;
 }
 
+static BOOL DYYYIsCommentBackdropObstruction(UIView *view) {
+    if (!view) {
+        return NO;
+    }
+
+    NSString *className = NSStringFromClass([view class]);
+    return [view isKindOfClass:[UIVisualEffectView class]] ||
+           [className rangeOfString:@"Mask" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+           [className rangeOfString:@"Backdrop" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+           [className rangeOfString:@"Overlay" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+           [className rangeOfString:@"Dimming" options:NSCaseInsensitiveSearch].location != NSNotFound;
+}
+
 + (NSAttributedString *)commentBlurCleanedAttributedText:(NSAttributedString *)attributedText forView:(UIView *)view {
     if (attributedText.length == 0 || ![self shouldClearCommentBlurBackgroundsForView:view]) {
         return attributedText;
@@ -994,6 +1007,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         blurView.effect = nil;
         blurView.hidden = YES;
         [blurView removeFromSuperview];
+        [self clearCommentPanelBackdropObstructionsInRootView:rootView keepingView:topLevelPanelView];
         [self clearCommentBlurBackgroundsInView:panelView depth:0];
         return;
     }
@@ -1007,7 +1021,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
 
     blurView.hidden = NO;
-    blurView.alpha = 1.0 - normalizedTransparency;
+    blurView.alpha = 1.0;
     blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     blurView.layer.cornerRadius = panelView.layer.cornerRadius;
     blurView.layer.maskedCorners = panelView.layer.maskedCorners;
@@ -1028,9 +1042,9 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         tintView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [blurView.contentView addSubview:tintView];
     }
-    CGFloat tintVisibility = pow(MAX(0.0, 1.0 - normalizedTransparency), 1.5);
+    CGFloat tintVisibility = MAX(0.0, 1.0 - normalizedTransparency);
     tintView.backgroundColor = isDarkMode ? [UIColor blackColor] : [UIColor whiteColor];
-    tintView.alpha = tintVisibility * (isDarkMode ? 0.55 : 0.65);
+    tintView.alpha = tintVisibility * (isDarkMode ? 0.62 : 0.72);
 
     NSArray<UIView *> *rootSubviews = rootView.subviews;
     NSUInteger blurIndex = [rootSubviews indexOfObjectIdenticalTo:blurView];
@@ -1058,11 +1072,13 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
             continue;
         }
 
-        subview.backgroundColor = [UIColor clearColor];
-        subview.opaque = NO;
-        subview.layer.backgroundColor = [UIColor clearColor].CGColor;
-        if ([subview isKindOfClass:[UIVisualEffectView class]]) {
-            ((UIVisualEffectView *)subview).effect = nil;
+        if (DYYYIsCommentBackdropObstruction(subview)) {
+            subview.backgroundColor = [UIColor clearColor];
+            subview.opaque = NO;
+            subview.layer.backgroundColor = [UIColor clearColor].CGColor;
+            if ([subview isKindOfClass:[UIVisualEffectView class]]) {
+                ((UIVisualEffectView *)subview).effect = nil;
+            }
         }
     }
 }
