@@ -1394,6 +1394,7 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 - (BOOL)shouldShowFollowAddWithModel:(id)model;
 - (void)layoutElementView;
 - (void)showFollowAddView:(BOOL)show;
+- (void)dyyyApplyFollowPromptVisibility;
 @end
 
 @interface AWELeftSideBarViewController : UIViewController <UICollectionViewDelegate, UICollectionViewDataSource>
