@@ -96,6 +96,11 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)applyCommentPanelBlurToRootViewController:(UIViewController *)rootViewController transparency:(float)userTransparency;
 
 /**
+ * @brief 移除评论区毛玻璃并恢复系统遮罩状态；评论内容透明度始终不变。
+ */
++ (void)resetCommentPanelBlurForRootViewController:(UIViewController *)rootViewController;
+
+/**
  * @brief 判断视图是否属于评论区文字或输入区域。
  */
 + (BOOL)shouldClearCommentBlurBackgroundsForView:(UIView *)view;

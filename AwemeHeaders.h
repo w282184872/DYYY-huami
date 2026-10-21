@@ -447,10 +447,17 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @property(nonatomic, copy) NSString *detailReferString;
 @property(nonatomic, copy) NSString *detailEnterFrom;
 @property(nonatomic, strong) id homepageUser;
+@property(nonatomic, strong) id parentVC;
+@property(nonatomic, strong) id previousPage;
+@property(nonatomic, assign) BOOL isInDetailFeed;
 - (BOOL)playerNotCoverBottomBarEnable;
 @end
 
 @interface AWEFeedGeneralViewCell : UIView
+@property(nonatomic, copy) NSString *detailReferString;
+@property(nonatomic, copy) NSString *detailEnterFrom;
+@property(nonatomic, strong) id homepageUser;
+@property(nonatomic, assign) BOOL isInDetailFeed;
 - (BOOL)playerNotCoverBottomBarEnable;
 @end
 
@@ -1221,7 +1228,22 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 - (BOOL)prefersStatusBarHidden;
 @end
 @interface AWEAwemeDetailTableViewController : UIViewController
+@property(nonatomic, strong) id homepageUserModel;
+@property(nonatomic, strong) id userProfileController;
+@property(nonatomic, strong) id previousPage;
+@property(nonatomic, copy) NSString *referString;
+@property(nonatomic, copy) NSString *enterFrom;
+- (CGFloat)tableViewBottomInsetForAllPlatform;
+- (CGFloat)tableViewBottomInsetForAllPlatform:(id)context;
+- (CGFloat)baseTableViewBottomInset;
 - (BOOL)prefersStatusBarHidden;
+@end
+@interface AWEMixVideoPanelDetailTableViewController : AWEAwemeDetailTableViewController
+@property(nonatomic, strong) UIView *bottomBackgroundView;
+@property(nonatomic, strong) UIView *splitLineView;
+@property(nonatomic, assign) BOOL interactionPanelManagerOwnsVideoScale;
+- (void)setInteractionPanelManagerOwnsVideoScale:(BOOL)ownsVideoScale;
+- (void)changeVideoWhenShowPanel:(BOOL)show;
 @end
 @interface AWEAwemeHotSpotTableViewController : UIViewController
 - (BOOL)prefersStatusBarHidden;
@@ -1358,6 +1380,20 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 
 @interface AWEPlayInteractionUserAvatarView : UIView
 @property(nonatomic, strong) AWEPlayInteractionFollowPromptView *followPromptView;
+@end
+
+@interface AWEPlayInteractionUserAvatarFollowPromptController : NSObject
+@property(nonatomic, strong) id followPromptView;
+@property(nonatomic, strong) id followAddView;
+@property(nonatomic, strong) id followAddImageView;
+@property(nonatomic, strong) id followedView;
+@property(nonatomic, strong) id followAnimationView;
+@property(nonatomic, strong) id unfollowAnimationView;
+@property(nonatomic, strong) id staticFollowAnimationView;
+@property(nonatomic, assign) BOOL hasPendingShowFollowAddView;
+- (BOOL)shouldShowFollowAddWithModel:(id)model;
+- (void)layoutElementView;
+- (void)showFollowAddView:(BOOL)show;
 @end
 
 @interface AWELeftSideBarViewController : UIViewController <UICollectionViewDelegate, UICollectionViewDataSource>

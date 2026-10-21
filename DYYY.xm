@@ -3113,41 +3113,6 @@ static NSArray *DYYYIMMenuItemsByAddingDownloadAction(NSArray *menuItems, id cel
 }
 %end
 
-// 隐藏头像加号和透明
-%hook LOTAnimationView
-- (void)layoutSubviews {
-    %orig;
-    UIView *followPromptView = (UIView *)[DYYYUtils findAncestorResponderOfClass:%c(AWEPlayInteractionFollowPromptView) fromView:self];
-    if (!followPromptView) {
-        return;
-    }
-
-    if (DYYYGetBool(@"DYYYHideFollowPromptView")) {
-        followPromptView.hidden = YES;
-        followPromptView.userInteractionEnabled = NO;
-        self.hidden = YES;
-        self.userInteractionEnabled = NO;
-    } else if (DYYYGetBool(@"DYYYHideLOTAnimationView")) {
-        followPromptView.hidden = NO;
-        followPromptView.userInteractionEnabled = YES;
-        self.hidden = NO;
-        self.alpha = 0.0;
-        self.userInteractionEnabled = NO;
-    } else {
-        followPromptView.hidden = NO;
-        followPromptView.userInteractionEnabled = YES;
-        self.hidden = NO;
-        self.alpha = 1.0;
-        self.userInteractionEnabled = YES;
-        NSString *transparencyValue = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYAvatarViewTransparency"];
-        if (transparencyValue && transparencyValue.length > 0) {
-            CGFloat alphaValue = [transparencyValue floatValue];
-            self.alpha = alphaValue;
-        }
-    }
-}
-%end
-
 // 首页头像隐藏和透明
 %hook AWEAdAvatarView
 - (void)layoutSubviews {
@@ -3665,7 +3630,6 @@ static NSArray *DYYYIMMenuItemsByAddingDownloadAction(NSArray *menuItems, id cel
     %orig;
 
     BOOL removePrompt = DYYYGetBool(@"DYYYHideFollowPromptView") || DYYYGetBool(@"DYYYHideAvatarButton");
-    BOOL hidePromptVisual = DYYYGetBool(@"DYYYHideLOTAnimationView");
 
     if (removePrompt) {
         self.userInteractionEnabled = NO;
@@ -3673,21 +3637,8 @@ static NSArray *DYYYIMMenuItemsByAddingDownloadAction(NSArray *menuItems, id cel
         return;
     }
 
-    if (hidePromptVisual) {
-        self.hidden = NO;
-        self.userInteractionEnabled = YES;
-        for (UIView *subview in self.subviews) {
-            subview.hidden = YES;
-            subview.userInteractionEnabled = NO;
-        }
-    } else {
-        self.hidden = NO;
-        self.userInteractionEnabled = YES;
-        for (UIView *subview in self.subviews) {
-            subview.hidden = NO;
-            subview.userInteractionEnabled = YES;
-        }
-    }
+    self.hidden = NO;
+    self.userInteractionEnabled = YES;
 }
 
 %end
@@ -5905,61 +5856,110 @@ static NSHashTable *processedParentViews = nil;
 
 %end
 
-%hook AWEPlayInteractionUserAvatarView
-- (void)layoutSubviews {
-    %orig;
+%hook AWEPlayInteractionUserAvatarFollowPromptController
 
-    AWEPlayInteractionFollowPromptView *followPromptView =
-        (AWEPlayInteractionFollowPromptView *)[DYYYUtils findSubviewOfClass:%c(AWEPlayInteractionFollowPromptView) inContainer:self];
-    if (!followPromptView) {
+%new
+- (void)dyyyApplyFollowPromptVisibility {
+    static char kDYYYFollowAddViewStateKey;
+
+    UIView *followPromptView = (UIView *)self.followPromptView;
+    NSMutableArray<UIView *> *addViews = [NSMutableArray array];
+    for (id candidate in @[ self.followAddView ?: [NSNull null],
+                            self.followAddImageView ?: [NSNull null] ]) {
+        if ([candidate isKindOfClass:[UIView class]]) {
+            [addViews addObject:candidate];
+        }
+    }
+
+    BOOL removePrompt = DYYYGetBool(@"DYYYHideFollowPromptView");
+    BOOL hideAddView = removePrompt || DYYYGetBool(@"DYYYHideLOTAnimationView");
+    NSMutableArray<NSDictionary *> *savedStates = objc_getAssociatedObject(self, &kDYYYFollowAddViewStateKey);
+
+    if (hideAddView) {
+        if (!savedStates) {
+            savedStates = [NSMutableArray array];
+            if (removePrompt && followPromptView) {
+                [savedStates addObject:@{
+                    @"view" : followPromptView,
+                    @"hidden" : @(followPromptView.hidden),
+                    @"interactive" : @(followPromptView.userInteractionEnabled)
+                }];
+            }
+            for (UIView *view in addViews) {
+                [savedStates addObject:@{
+                    @"view" : view,
+                    @"hidden" : @(view.hidden),
+                    @"interactive" : @(view.userInteractionEnabled)
+                }];
+            }
+            objc_setAssociatedObject(self, &kDYYYFollowAddViewStateKey, savedStates, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+
+        for (UIView *view in addViews) {
+            view.hidden = YES;
+            view.userInteractionEnabled = NO;
+        }
+        if (removePrompt && followPromptView) {
+            followPromptView.hidden = YES;
+            followPromptView.userInteractionEnabled = NO;
+        }
         return;
     }
 
-    if (DYYYGetBool(@"DYYYHideFollowPromptView")) {
-        followPromptView.hidden = YES;
-        followPromptView.userInteractionEnabled = NO;
-    } else if (DYYYGetBool(@"DYYYHideLOTAnimationView")) {
-        followPromptView.hidden = NO;
-        followPromptView.userInteractionEnabled = YES;
-        for (UIView *subview in followPromptView.subviews) {
-            subview.hidden = YES;
-            subview.userInteractionEnabled = NO;
-        }
-    } else {
-        followPromptView.hidden = NO;
-        followPromptView.userInteractionEnabled = YES;
-        for (UIView *subview in followPromptView.subviews) {
-            subview.hidden = NO;
-            subview.userInteractionEnabled = YES;
-        }
+    for (NSDictionary *state in savedStates) {
+        UIView *view = state[@"view"];
+        view.hidden = [state[@"hidden"] boolValue];
+        view.userInteractionEnabled = [state[@"interactive"] boolValue];
     }
+    objc_setAssociatedObject(self, &kDYYYFollowAddViewStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-- (void)setFollowPromptView:(AWEPlayInteractionFollowPromptView *)followPromptView {
+- (BOOL)shouldShowFollowAddWithModel:(id)model {
+    BOOL result = %orig(model);
+    [self dyyyApplyFollowPromptVisibility];
+    return result;
+}
+
+- (void)showFollowAddView:(BOOL)show {
+    %orig(show);
+    [self dyyyApplyFollowPromptVisibility];
+}
+
+- (void)layoutElementView {
     %orig;
-    if (!followPromptView) {
-        return;
-    }
-
-    if (DYYYGetBool(@"DYYYHideFollowPromptView")) {
-        followPromptView.hidden = YES;
-        followPromptView.userInteractionEnabled = NO;
-    } else if (DYYYGetBool(@"DYYYHideLOTAnimationView")) {
-        followPromptView.hidden = NO;
-        followPromptView.userInteractionEnabled = YES;
-        for (UIView *subview in followPromptView.subviews) {
-            subview.hidden = YES;
-            subview.userInteractionEnabled = NO;
-        }
-    } else {
-        followPromptView.hidden = NO;
-        followPromptView.userInteractionEnabled = YES;
-        for (UIView *subview in followPromptView.subviews) {
-            subview.hidden = NO;
-            subview.userInteractionEnabled = YES;
-        }
-    }
+    [self dyyyApplyFollowPromptVisibility];
 }
+
+- (void)setFollowAddView:(id)followAddView {
+    %orig;
+    [self dyyyApplyFollowPromptVisibility];
+}
+
+- (void)setFollowAddImageView:(id)followAddImageView {
+    %orig;
+    [self dyyyApplyFollowPromptVisibility];
+}
+
+- (void)setFollowedView:(id)followedView {
+    %orig;
+    [self dyyyApplyFollowPromptVisibility];
+}
+
+- (void)setFollowAnimationView:(id)followAnimationView {
+    %orig;
+    [self dyyyApplyFollowPromptVisibility];
+}
+
+- (void)setUnfollowAnimationView:(id)unfollowAnimationView {
+    %orig;
+    [self dyyyApplyFollowPromptVisibility];
+}
+
+- (void)setStaticFollowAnimationView:(id)staticFollowAnimationView {
+    %orig;
+    [self dyyyApplyFollowPromptVisibility];
+}
+
 %end
 
 %hook AWEPlayInteractionViewController
@@ -6615,6 +6615,7 @@ static Class tabBarButtonClass = nil;
             // 隐藏底栏背景
             if ([subview isKindOfClass:barBackgroundClass] || ([subview isMemberOfClass:[UIView class]] && originalTabBarHeight > 0 && fabs(subview.frame.size.height - gCurrentTabBarHeight) < 0.1)) {
                 subview.hidden = shouldHideBackgrounds;
+                subview.userInteractionEnabled = !shouldHideBackgrounds;
             }
             // 隐藏细分割线
             if (subview.frame.size.height > 0 && subview.frame.size.height < 1 && subview.frame.size.width > 300) {
@@ -6629,6 +6630,7 @@ static Class tabBarButtonClass = nil;
         for (UIView *subview in self.subviews) {
             if ([subview isKindOfClass:barBackgroundClass] || [subview isMemberOfClass:[UIView class]]) {
                 subview.hidden = NO;
+                subview.userInteractionEnabled = YES;
             }
         }
     }
@@ -6681,6 +6683,7 @@ static Class tabBarButtonClass = nil;
             // 隐藏底栏背景
             if ([subview isKindOfClass:barBackgroundClass] || ([subview isMemberOfClass:[UIView class]] && originalTabBarHeight > 0 && fabs(subviewHeight - gCurrentTabBarHeight) < 0.1)) {
                 subview.hidden = shouldHideBackgrounds;
+                subview.userInteractionEnabled = !shouldHideBackgrounds;
             }
             // 隐藏细分割线
             if (subviewHeight > 0 && subviewHeight < 1 && subview.frame.size.width > 300) {
@@ -6694,9 +6697,15 @@ static Class tabBarButtonClass = nil;
         for (UIView *subview in self.subviews) {
             if ([subview isKindOfClass:barBackgroundClass] || [subview isMemberOfClass:[UIView class]]) {
                 subview.hidden = NO;
+                subview.userInteractionEnabled = YES;
             }
         }
     }
+}
+
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hitView = %orig;
+    return hitView == self ? nil : hitView;
 }
 
 %end
@@ -7027,6 +7036,7 @@ static Class tabBarButtonClass = nil;
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
     dyyyCommentViewVisible = YES;
+    [self dyyyApplyCommentBlurIfNeeded];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -7079,45 +7089,16 @@ static Class tabBarButtonClass = nil;
 
 %new
 - (void)dyyyApplyCommentBlurIfNeeded {
-    if (!DYYYGetBool(@"DYYYEnableCommentBlur") || ![DYYYUtils isCommentPanelContext:self]) {
+    if (![DYYYUtils isCommentPanelContext:self]) {
+        return;
+    }
+    if (!DYYYGetBool(@"DYYYEnableCommentBlur")) {
+        [DYYYUtils resetCommentPanelBlurForRootViewController:self];
         return;
     }
 
     float commentBlurTransparency = [DYYYUtils commentBlurTransparencyPercent] / 100.0;
     [DYYYUtils applyCommentPanelBlurToRootViewController:self transparency:commentBlurTransparency];
-}
-
-%end
-
-// 开启评论区毛玻璃后滚动区域填满底部
-%hook AWEListKitMagicCollectionView
-
-- (void)layoutSubviews {
-    %orig;
-
-    if (!DYYYGetBool(@"DYYYEnableCommentBlur") || ![DYYYUtils isCommentPanelContext:self]) {
-        return;
-    }
-
-    UICollectionView *collectionView = (UICollectionView *)self;
-
-    UIView *superview = collectionView.superview;
-    CGRect targetFrame = superview.bounds;
-    if (superview == nil || CGSizeEqualToSize(targetFrame.size, CGSizeZero)) {
-        return;
-    }
-
-    if (!CGRectEqualToRect(collectionView.frame, targetFrame)) {
-        collectionView.frame = targetFrame;
-
-        CGFloat commentOffset = 166.0;
-
-        UIEdgeInsets inset = collectionView.contentInset;
-        inset.bottom = commentOffset;
-        collectionView.contentInset = inset;
-        collectionView.scrollIndicatorInsets = inset;
-    }
-    [DYYYUtils clearCommentBlurBackgroundsInView:collectionView];
 }
 
 %end
@@ -7243,6 +7224,9 @@ static Class tabBarButtonClass = nil;
 %new
 - (void)dyyy_applyGlobalTransparency {
     if ([NSThread isMainThread]) {
+        if ([DYYYUtils isCommentPanelContext:self]) {
+            return;
+        }
         if (self.window && self.tag != DYYY_IGNORE_GLOBAL_ALPHA_TAG) {
             NSNumber *stored = objc_getAssociatedObject(self, &kDYYYGlobalTransparencyBaseAlphaKey);
             CGFloat baseAlpha = stored ? stored.floatValue : self.alpha;
@@ -7735,27 +7719,6 @@ static Class tabBarButtonClass = nil;
 
 %end
 
-%hook AWEFeedTableView
-- (void)layoutSubviews {
-    %orig;
-
-    if (DYYYGetBool(@"DYYYEnableFullScreen")) {
-        CGRect frame = self.frame;
-        frame.size.height = self.superview.frame.size.height;
-        self.frame = frame;
-    } else if (gCurrentTabBarHeight > 0) {
-        UIWindow *keyWindow = [DYYYUtils getActiveWindow];
-        if (keyWindow && keyWindow.safeAreaInsets.bottom == 0) {
-            return;
-        }
-
-        CGRect frame = self.frame;
-        frame.size.height = self.superview.frame.size.height - gCurrentTabBarHeight;
-        self.frame = frame;
-    }
-}
-%end
-
 %hook AWEFeedTableViewCell
 - (void)prepareForReuse {
     if (hideButton && hideButton.isElementsHidden) {
@@ -8048,7 +8011,8 @@ static Class TagViewClass = nil;
 
     // 值守全局透明度
     CGFloat finalAlpha = alpha;
-    if (!isApplyingGlobal && self.tag != DYYY_IGNORE_GLOBAL_ALPHA_TAG && gGlobalTransparency != kInvalidAlpha) {
+    if (!isApplyingGlobal && self.tag != DYYY_IGNORE_GLOBAL_ALPHA_TAG && gGlobalTransparency != kInvalidAlpha &&
+        ![DYYYUtils isCommentPanelContext:self]) {
         CGFloat clampedAlpha = MIN(MAX(alpha, 0.0), 1.0);
         finalAlpha = clampedAlpha * gGlobalTransparency;
     }
@@ -8283,7 +8247,8 @@ static Class TagViewClass = nil;
     }
 
     CGFloat finalAlpha = alpha;
-    if (!isApplyingGlobal && self.tag != DYYY_IGNORE_GLOBAL_ALPHA_TAG && gGlobalTransparency != kInvalidAlpha) {
+    if (!isApplyingGlobal && self.tag != DYYY_IGNORE_GLOBAL_ALPHA_TAG && gGlobalTransparency != kInvalidAlpha &&
+        ![DYYYUtils isCommentPanelContext:self]) {
         CGFloat clampedAlpha = MIN(MAX(alpha, 0.0), 1.0);
         finalAlpha = clampedAlpha * gGlobalTransparency;
     }
@@ -8390,28 +8355,6 @@ static Class TagViewClass = nil;
 
 %hook TTPlayerView
 
-- (void)setScaleType:(NSInteger)scaleType {
-    static char kDYYYProfileDetailLockedScaleTypeKey;
-    BOOL shouldLockForComments = DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
-                                 [DYYYUtils isProfileVideoDetailContext:self] &&
-                                 [DYYYUtils isCommentPanelPresentedInContext:self];
-
-    if (shouldLockForComments) {
-        NSNumber *lockedScaleType = objc_getAssociatedObject(self, &kDYYYProfileDetailLockedScaleTypeKey);
-        if (!lockedScaleType) {
-            lockedScaleType = @(self.scaleType);
-            objc_setAssociatedObject(self, &kDYYYProfileDetailLockedScaleTypeKey, lockedScaleType, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-        if (lockedScaleType.integerValue != scaleType) {
-            return;
-        }
-    } else {
-        objc_setAssociatedObject(self, &kDYYYProfileDetailLockedScaleTypeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-
-    %orig(scaleType);
-}
-
 - (void)layoutSubviews {
     %orig;
 
@@ -8467,26 +8410,67 @@ static Class TagViewClass = nil;
 
 %end
 
-%hook AWEAwemeDetailTableViewCell
+%hook AWEAwemeDetailTableViewController
 
-- (BOOL)playerNotCoverBottomBarEnable {
+- (CGFloat)tableViewBottomInsetForAllPlatform {
     if (DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
         [DYYYUtils isProfileVideoDetailContext:self]) {
-        return NO;
+        return 0.0;
     }
     return %orig;
 }
 
-%end
-
-%hook AWEFeedGeneralViewCell
-
-- (BOOL)playerNotCoverBottomBarEnable {
+- (CGFloat)tableViewBottomInsetForAllPlatform:(id)context {
     if (DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
         [DYYYUtils isProfileVideoDetailContext:self]) {
-        return NO;
+        return 0.0;
+    }
+    return %orig(context);
+}
+
+- (CGFloat)baseTableViewBottomInset {
+    if (DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+        [DYYYUtils isProfileVideoDetailContext:self]) {
+        return 0.0;
     }
     return %orig;
+}
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+
+    if (DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+        [DYYYUtils isProfileVideoDetailContext:self]) {
+        self.view.backgroundColor = [UIColor clearColor];
+        self.view.opaque = NO;
+    }
+}
+
+%end
+
+%hook AWEMixVideoPanelDetailTableViewController
+
+- (void)changeVideoWhenShowPanel:(BOOL)show {
+    if (show &&
+        DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+        [DYYYUtils isProfileVideoDetailContext:self]) {
+        [self setInteractionPanelManagerOwnsVideoScale:YES];
+    }
+    %orig(show);
+}
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+
+    if (!DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) ||
+        ![DYYYUtils isProfileVideoDetailContext:self]) {
+        return;
+    }
+
+    self.view.backgroundColor = [UIColor clearColor];
+    self.view.opaque = NO;
+    self.bottomBackgroundView.hidden = YES;
+    self.splitLineView.hidden = YES;
 }
 
 %end
@@ -8584,7 +8568,8 @@ static Class TagViewClass = nil;
     }
 
     CGFloat finalAlpha = alpha;
-    if (!isApplyingGlobal && self.tag != DYYY_IGNORE_GLOBAL_ALPHA_TAG && gGlobalTransparency != kInvalidAlpha) {
+    if (!isApplyingGlobal && self.tag != DYYY_IGNORE_GLOBAL_ALPHA_TAG && gGlobalTransparency != kInvalidAlpha &&
+        ![DYYYUtils isCommentPanelContext:self]) {
         CGFloat clampedAlpha = MIN(MAX(alpha, 0.0), 1.0);
         finalAlpha = clampedAlpha * gGlobalTransparency;
     }

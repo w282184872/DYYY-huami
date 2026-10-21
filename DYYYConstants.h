@@ -4,7 +4,7 @@
 #define DYYY_NAME @"DYYY"
 #define DYYY_SETTINGS_NAME @"DYYY设置"
 
-#define DYYY_VERSION @"40.7.0-14"
+#define DYYY_VERSION @"40.7.0-16"
 
 #define DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY @"DYYYProfileDetailHideBottomBg"
 

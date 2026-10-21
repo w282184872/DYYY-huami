@@ -34,6 +34,8 @@ static const NSTimeInterval kDYYYUtilsDefaultFrameDelay = 0.1f;
 static const NSInteger kDYYYCommentPanelBlurTag = 0xD99901;
 static const NSInteger kDYYYCommentPanelBlurTintTag = 0xD99902;
 static const unsigned long long kDYYYRuntimeLogMaxBytes = 2 * 1024 * 1024;
+static char kDYYYCommentBackdropHiddenStateKey;
+static char kDYYYCommentBackdropInteractionStateKey;
 
 static NSString *DYYYRuntimeLogFilePath(void) {
     static NSString *logPath = nil;
@@ -384,9 +386,13 @@ static BOOL DYYYUtilsWriteStaticImageToGIF(UIImage *image, NSURL *gifURL) {
 @interface DYYYUtils ()
 + (NSString *)fallbackLocationFromIPAttribution:(AWEAwemeModel *)model;
 + (NSString *)displayLocationForGeoNamesError:(NSError *)error model:(AWEAwemeModel *)model;
-+ (void)clearCommentPanelBackdropObstructionsInRootView:(UIView *)rootView keepingView:(UIView *)keepView;
 + (void)clearCommentPanelBackgroundForView:(UIView *)view;
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth;
++ (void)clearCommentPanelPresentationArtifactsInViewController:(UIViewController *)viewController;
++ (id)objectValueForIvarNamed:(NSString *)ivarName onObject:(id)object;
++ (UIViewController *)commentPanelInnerViewControllerForRootViewController:(UIViewController *)rootViewController;
++ (UIViewController *)findViewControllerWithClassNameToken:(NSString *)classNameToken
+                                           inViewController:(UIViewController *)viewController;
 + (id)profileDetailValueForKey:(NSString *)key onObject:(id)object;
 + (BOOL)profileDetailStringMatches:(NSString *)value;
 @end
@@ -746,6 +752,23 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     return [self findViewControllerOfClass:targetClass inViewController:vc.presentedViewController];
 }
 
++ (id)objectValueForIvarNamed:(NSString *)ivarName onObject:(id)object {
+    if (ivarName.length == 0 || !object) {
+        return nil;
+    }
+
+    Ivar ivar = class_getInstanceVariable([object class], ivarName.UTF8String);
+    if (!ivar) {
+        return nil;
+    }
+
+    @try {
+        return object_getIvar(object, ivar);
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+}
+
 + (id)profileDetailValueForKey:(NSString *)key onObject:(id)object {
     if (key.length == 0 || !object || ![object respondsToSelector:NSSelectorFromString(key)]) {
         return nil;
@@ -767,8 +790,10 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     NSArray<NSString *> *profileReferTokens = @[
         @"personal_homepage",
         @"user_homepage",
+        @"others_homepage",
         @"profile_video",
         @"profile_detail",
+        @"personal_detail",
         @"user_profile_video"
     ];
     for (NSString *token in profileReferTokens) {
@@ -789,7 +814,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     BOOL hasDetailMarker = NO;
     BOOL hasProfileMarker = NO;
     NSArray<NSString *> *referKeys = @[@"detailReferString", @"referString", @"detailEnterFrom", @"enterFrom", @"previousPage"];
-    NSArray<NSString *> *relatedContextKeys = @[@"parentVC", @"viewController", @"currentViewController", @"containerVC"];
+    NSArray<NSString *> *relatedContextKeys = @[@"parentVC", @"viewController", @"currentViewController", @"containerVC", @"userProfileController"];
 
     for (NSUInteger depth = 0; current && depth < 32; depth++) {
         if ([visited containsObject:current]) {
@@ -803,6 +828,12 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
             [className containsString:@"AWEMixVideoPanelDetailTable"]) {
             hasDetailMarker = YES;
         }
+        if ([className containsString:@"UserHomeViewController"] ||
+            [className containsString:@"UserDetailViewController"] ||
+            [className containsString:@"UserProfile"] ||
+            [className containsString:@"ProfileVideoDetail"]) {
+            hasProfileMarker = YES;
+        }
 
         for (NSString *key in referKeys) {
             id value = [self profileDetailValueForKey:key onObject:current];
@@ -812,11 +843,12 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
             }
         }
 
-        if (hasDetailMarker) {
-            id homepageUser = [self profileDetailValueForKey:@"homepageUser" onObject:current];
-            if (homepageUser && homepageUser != [NSNull null]) {
-                hasProfileMarker = YES;
-            }
+        id userProfileController = [self profileDetailValueForKey:@"userProfileController" onObject:current];
+        if (!userProfileController || userProfileController == [NSNull null]) {
+            userProfileController = [self objectValueForIvarNamed:@"_userProfileController" onObject:current];
+        }
+        if (userProfileController && userProfileController != [NSNull null]) {
+            hasProfileMarker = YES;
         }
 
         for (NSString *key in relatedContextKeys) {
@@ -830,6 +862,12 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
                 [relatedClassName containsString:@"AWEMixVideoPanelDetailTable"]) {
                 hasDetailMarker = YES;
             }
+            if ([relatedClassName containsString:@"UserHomeViewController"] ||
+                [relatedClassName containsString:@"UserDetailViewController"] ||
+                [relatedClassName containsString:@"UserProfile"] ||
+                [relatedClassName containsString:@"ProfileVideoDetail"]) {
+                hasProfileMarker = YES;
+            }
             for (NSString *referKey in referKeys) {
                 id value = [self profileDetailValueForKey:referKey onObject:relatedContext];
                 if ([value isKindOfClass:[NSString class]] && [self profileDetailStringMatches:value]) {
@@ -837,11 +875,12 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
                     break;
                 }
             }
-            if (hasDetailMarker) {
-                id homepageUser = [self profileDetailValueForKey:@"homepageUser" onObject:relatedContext];
-                if (homepageUser && homepageUser != [NSNull null]) {
-                    hasProfileMarker = YES;
-                }
+            id relatedUserProfileController = [self profileDetailValueForKey:@"userProfileController" onObject:relatedContext];
+            if (!relatedUserProfileController || relatedUserProfileController == [NSNull null]) {
+                relatedUserProfileController = [self objectValueForIvarNamed:@"_userProfileController" onObject:relatedContext];
+            }
+            if (relatedUserProfileController && relatedUserProfileController != [NSNull null]) {
+                hasProfileMarker = YES;
             }
         }
 
@@ -1108,17 +1147,20 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     return isCommentPanelText || isCommentInputSurface || isCommentBizLabel;
 }
 
-static BOOL DYYYIsCommentBackdropObstruction(UIView *view) {
-    if (!view) {
-        return NO;
+static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView *> *dimmingViews) {
+    if (!view || !dimmingViews) {
+        return;
     }
 
-    NSString *className = NSStringFromClass([view class]);
-    return [view isKindOfClass:[UIVisualEffectView class]] ||
-           [className rangeOfString:@"Mask" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-           [className rangeOfString:@"Backdrop" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-           [className rangeOfString:@"Overlay" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-           [className rangeOfString:@"Dimming" options:NSCaseInsensitiveSearch].location != NSNotFound;
+    Class dimmingClass = NSClassFromString(@"AWEPageSheetPresentationDimmingView");
+    if ((dimmingClass && [view isKindOfClass:dimmingClass]) ||
+        [NSStringFromClass([view class]) isEqualToString:@"AWEPageSheetPresentationDimmingView"]) {
+        [dimmingViews addObject:view];
+    }
+
+    for (UIView *subview in view.subviews) {
+        DYYYCollectPageSheetDimmingViews(subview, dimmingViews);
+    }
 }
 
 + (NSAttributedString *)commentBlurCleanedAttributedText:(NSAttributedString *)attributedText forView:(UIView *)view {
@@ -1153,13 +1195,15 @@ static BOOL DYYYIsCommentBackdropObstruction(UIView *view) {
     }
 
     UIView *rootView = rootViewController.view;
-    Class innerViewControllerClass = NSClassFromString(@"AWECommentPanelContainerSwiftImpl.CommentContainerInnerViewController");
-    UIViewController *innerViewController = [self findViewControllerOfClass:innerViewControllerClass inViewController:rootViewController];
+    [self clearCommentPanelPresentationArtifactsInViewController:rootViewController];
+
+    UIViewController *innerViewController = [self commentPanelInnerViewControllerForRootViewController:rootViewController];
     UIView *panelView = innerViewController.view;
     if (!panelView || ![panelView isDescendantOfView:rootView]) {
         return;
     }
 
+    panelView.alpha = 1.0;
     rootView.backgroundColor = [UIColor clearColor];
     rootView.opaque = NO;
     rootView.layer.backgroundColor = [UIColor clearColor].CGColor;
@@ -1170,9 +1214,6 @@ static BOOL DYYYIsCommentBackdropObstruction(UIView *view) {
         topLevelPanelView = topLevelPanelView.superview;
     }
     [self clearCommentPanelBackgroundForView:topLevelPanelView];
-
-    // 40.7.0 在评论面板与视频之间增加了 backgroundMaskView，先移除大面积遮挡，否则毛玻璃只会采样到黑色遮罩。
-    [self clearCommentPanelBackdropObstructionsInRootView:rootView keepingView:topLevelPanelView];
 
     UIVisualEffectView *blurView = nil;
     for (UIView *subview in rootView.subviews) {
@@ -1191,7 +1232,6 @@ static BOOL DYYYIsCommentBackdropObstruction(UIView *view) {
         blurView.effect = nil;
         blurView.hidden = YES;
         [blurView removeFromSuperview];
-        [self clearCommentPanelBackdropObstructionsInRootView:rootView keepingView:topLevelPanelView];
         [self clearCommentBlurBackgroundsInView:panelView depth:0];
         return;
     }
@@ -1244,27 +1284,144 @@ static BOOL DYYYIsCommentBackdropObstruction(UIView *view) {
     [self clearCommentBlurBackgroundsInView:panelView depth:0];
 }
 
-+ (void)clearCommentPanelBackdropObstructionsInRootView:(UIView *)rootView keepingView:(UIView *)keepView {
-    if (!rootView) {
++ (UIViewController *)commentPanelInnerViewControllerForRootViewController:(UIViewController *)rootViewController {
+    if (!rootViewController) {
+        return nil;
+    }
+
+    id innerViewController = [self objectValueForIvarNamed:@"$__lazy_storage_$_innerVC"
+                                                  onObject:rootViewController];
+    if (![innerViewController isKindOfClass:[UIViewController class]]) {
+        innerViewController = [self objectValueForIvarNamed:@"innerVC" onObject:rootViewController];
+    }
+    if ([innerViewController isKindOfClass:[UIViewController class]]) {
+        return innerViewController;
+    }
+
+    Class innerViewControllerClass = NSClassFromString(@"AWECommentPanelContainerSwiftImpl.CommentContainerInnerViewController");
+    if (innerViewControllerClass) {
+        UIViewController *found = [self findViewControllerOfClass:innerViewControllerClass
+                                                inViewController:rootViewController];
+        if (found) {
+            return found;
+        }
+    }
+
+    return [self findViewControllerWithClassNameToken:@"CommentContainerInnerViewController"
+                                    inViewController:rootViewController];
+}
+
++ (void)clearCommentPanelPresentationArtifactsInViewController:(UIViewController *)viewController {
+    if (!viewController || !viewController.view) {
         return;
     }
 
-    rootView.opaque = NO;
-
-    for (UIView *subview in rootView.subviews) {
-        if (subview.tag == kDYYYCommentPanelBlurTag || subview == keepView) {
-            continue;
+    NSMutableArray<UIView *> *backdropViews = [NSMutableArray array];
+    id backgroundMaskView = [self objectValueForIvarNamed:@"$__lazy_storage_$_backgroundMaskView"
+                                                 onObject:viewController];
+    if (![backgroundMaskView isKindOfClass:[UIView class]]) {
+        backgroundMaskView = [self objectValueForIvarNamed:@"backgroundMaskView" onObject:viewController];
+    }
+    if ([backgroundMaskView isKindOfClass:[UIView class]]) {
+        [backdropViews addObject:backgroundMaskView];
+    }
+    UIViewController *innerViewController = [self commentPanelInnerViewControllerForRootViewController:viewController];
+    if (innerViewController && innerViewController != viewController) {
+        id innerMaskView = [self objectValueForIvarNamed:@"$__lazy_storage_$_backgroundMaskView"
+                                                onObject:innerViewController];
+        if (![innerMaskView isKindOfClass:[UIView class]]) {
+            innerMaskView = [self objectValueForIvarNamed:@"backgroundMaskView" onObject:innerViewController];
         }
-
-        if (DYYYIsCommentBackdropObstruction(subview)) {
-            subview.backgroundColor = [UIColor clearColor];
-            subview.opaque = NO;
-            subview.layer.backgroundColor = [UIColor clearColor].CGColor;
-            if ([subview isKindOfClass:[UIVisualEffectView class]]) {
-                ((UIVisualEffectView *)subview).effect = nil;
-            }
+        if ([innerMaskView isKindOfClass:[UIView class]] && ![backdropViews containsObject:innerMaskView]) {
+            [backdropViews addObject:innerMaskView];
         }
     }
+    UIView *dimmingSearchRoot = viewController.view.superview ?: viewController.view;
+    DYYYCollectPageSheetDimmingViews(dimmingSearchRoot, backdropViews);
+
+    for (UIView *backdropView in backdropViews) {
+        if (!objc_getAssociatedObject(backdropView, &kDYYYCommentBackdropHiddenStateKey)) {
+            objc_setAssociatedObject(backdropView,
+                                     &kDYYYCommentBackdropHiddenStateKey,
+                                     @(backdropView.hidden),
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(backdropView,
+                                     &kDYYYCommentBackdropInteractionStateKey,
+                                     @(backdropView.userInteractionEnabled),
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        backdropView.hidden = YES;
+        backdropView.userInteractionEnabled = NO;
+    }
+}
+
++ (void)resetCommentPanelBlurForRootViewController:(UIViewController *)rootViewController {
+    if (!rootViewController || !rootViewController.view) {
+        return;
+    }
+
+    UIView *rootView = rootViewController.view;
+    for (UIView *subview in [rootView.subviews copy]) {
+        if ([subview isKindOfClass:[UIVisualEffectView class]] && subview.tag == kDYYYCommentPanelBlurTag) {
+            ((UIVisualEffectView *)subview).effect = nil;
+            [subview removeFromSuperview];
+        }
+    }
+
+    NSMutableArray<UIView *> *backdropViews = [NSMutableArray array];
+    id backgroundMaskView = [self objectValueForIvarNamed:@"$__lazy_storage_$_backgroundMaskView"
+                                                 onObject:rootViewController];
+    if (![backgroundMaskView isKindOfClass:[UIView class]]) {
+        backgroundMaskView = [self objectValueForIvarNamed:@"backgroundMaskView" onObject:rootViewController];
+    }
+    if ([backgroundMaskView isKindOfClass:[UIView class]]) {
+        [backdropViews addObject:backgroundMaskView];
+    }
+    UIViewController *innerViewController = [self commentPanelInnerViewControllerForRootViewController:rootViewController];
+    if (innerViewController && innerViewController != rootViewController) {
+        id innerMaskView = [self objectValueForIvarNamed:@"$__lazy_storage_$_backgroundMaskView"
+                                                onObject:innerViewController];
+        if (![innerMaskView isKindOfClass:[UIView class]]) {
+            innerMaskView = [self objectValueForIvarNamed:@"backgroundMaskView" onObject:innerViewController];
+        }
+        if ([innerMaskView isKindOfClass:[UIView class]] && ![backdropViews containsObject:innerMaskView]) {
+            [backdropViews addObject:innerMaskView];
+        }
+    }
+    UIView *dimmingSearchRoot = rootView.superview ?: rootView;
+    DYYYCollectPageSheetDimmingViews(dimmingSearchRoot, backdropViews);
+
+    for (UIView *backdropView in backdropViews) {
+        NSNumber *hiddenState = objc_getAssociatedObject(backdropView, &kDYYYCommentBackdropHiddenStateKey);
+        NSNumber *interactionState = objc_getAssociatedObject(backdropView, &kDYYYCommentBackdropInteractionStateKey);
+        if (hiddenState) {
+            backdropView.hidden = hiddenState.boolValue;
+        }
+        if (interactionState) {
+            backdropView.userInteractionEnabled = interactionState.boolValue;
+        }
+        objc_setAssociatedObject(backdropView, &kDYYYCommentBackdropHiddenStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(backdropView, &kDYYYCommentBackdropInteractionStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
+
++ (UIViewController *)findViewControllerWithClassNameToken:(NSString *)classNameToken
+                                           inViewController:(UIViewController *)viewController {
+    if (classNameToken.length == 0 || !viewController) {
+        return nil;
+    }
+    if ([NSStringFromClass([viewController class]) containsString:classNameToken]) {
+        return viewController;
+    }
+    for (UIViewController *childViewController in viewController.childViewControllers) {
+        UIViewController *found = [self findViewControllerWithClassNameToken:classNameToken
+                                                           inViewController:childViewController];
+        if (found) {
+            return found;
+        }
+    }
+    return [self findViewControllerWithClassNameToken:classNameToken
+                                    inViewController:viewController.presentedViewController];
 }
 
 + (void)clearCommentPanelBackgroundForView:(UIView *)view {
