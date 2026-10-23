@@ -814,7 +814,8 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     BOOL hasDetailMarker = NO;
     BOOL hasProfileMarker = NO;
     NSArray<NSString *> *referKeys = @[@"detailReferString", @"referString", @"detailEnterFrom", @"enterFrom", @"previousPage"];
-    NSArray<NSString *> *relatedContextKeys = @[@"parentVC", @"viewController", @"currentViewController", @"containerVC", @"userProfileController"];
+    NSArray<NSString *> *profileIdentityKeys = @[@"homepageUser", @"homepageUserModel"];
+    NSArray<NSString *> *relatedContextKeys = @[@"parentVC", @"viewController", @"currentViewController", @"containerVC", @"previousPage", @"userProfileController"];
 
     for (NSUInteger depth = 0; current && depth < 32; depth++) {
         if ([visited containsObject:current]) {
@@ -833,6 +834,14 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
             [className containsString:@"UserProfile"] ||
             [className containsString:@"ProfileVideoDetail"]) {
             hasProfileMarker = YES;
+        }
+
+        for (NSString *key in profileIdentityKeys) {
+            id profileIdentity = [self profileDetailValueForKey:key onObject:current];
+            if (profileIdentity && profileIdentity != [NSNull null]) {
+                hasProfileMarker = YES;
+                break;
+            }
         }
 
         for (NSString *key in referKeys) {
@@ -866,6 +875,9 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
                 [relatedClassName containsString:@"UserDetailViewController"] ||
                 [relatedClassName containsString:@"UserProfile"] ||
                 [relatedClassName containsString:@"ProfileVideoDetail"]) {
+                hasProfileMarker = YES;
+            }
+            if ([key isEqualToString:@"userProfileController"]) {
                 hasProfileMarker = YES;
             }
             for (NSString *referKey in referKeys) {

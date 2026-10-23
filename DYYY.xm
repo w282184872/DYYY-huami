@@ -7381,6 +7381,10 @@ static Class tabBarButtonClass = nil;
     BOOL useFullHeight = [currentReferString isEqualToString:@"general_search"] || [currentReferString isEqualToString:@"search_result"] || [currentReferString isEqualToString:@"search_ecommerce"] ||
                          [currentReferString isEqualToString:@"close_friends_moment"] || [currentReferString isEqualToString:@"offline_mode"] || [currentReferString isEqualToString:@"challenge"] ||
                          [currentReferString isEqualToString:@"general_search_scan"] || currentReferString == nil;
+    if (DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+        [DYYYUtils isProfileVideoDetailContext:self]) {
+        useFullHeight = YES;
+    }
     if (!useFullHeight && [currentReferString isEqualToString:@"co_play_watch"]) {
         Class richContentVCClass = NSClassFromString(@"AWEFriendsImpl.RichContentNewListViewController");
         if (richContentVCClass && [directParentVC isKindOfClass:richContentVCClass]) {
@@ -8351,6 +8355,24 @@ static Class TagViewClass = nil;
         view.backgroundColor = [UIColor clearColor];
     }
 }
+%end
+
+%hook AWEAwemeBaseViewController
+
+- (void)setPlayerViewFrame:(CGRect)frame clipsToBounds:(BOOL)clipsToBounds {
+    if (DYYYGetBool(@"DYYYEnableFullScreen") &&
+        DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+        [DYYYUtils isProfileVideoDetailContext:self]) {
+        CGSize hostSize = self.view.bounds.size;
+        CGSize screenSize = [UIScreen mainScreen].bounds.size;
+        if (hostSize.height > hostSize.width &&
+            hostSize.width + 0.5 >= screenSize.width) {
+            frame = self.view.bounds;
+        }
+    }
+    %orig(frame, clipsToBounds);
+}
+
 %end
 
 %hook TTPlayerView

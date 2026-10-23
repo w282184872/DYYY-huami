@@ -443,6 +443,10 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @interface AWECommentInputViewController : UIViewController
 @end
 
+@interface AWEAwemeBaseViewController : UIViewController
+- (void)setPlayerViewFrame:(CGRect)frame clipsToBounds:(BOOL)clipsToBounds;
+@end
+
 @interface AWEAwemeDetailTableViewCell : UIView
 @property(nonatomic, copy) NSString *detailReferString;
 @property(nonatomic, copy) NSString *detailEnterFrom;
