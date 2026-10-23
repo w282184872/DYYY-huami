@@ -36,14 +36,14 @@
 
 ```text
 首页视频尺寸异常
-  └─ Proximate cause: Feed 表格被按“底栏上方内容高度”布局
-      └─ Underlying cause: 40.7.0 中 AWEFeedTableView 仍保留旧的底部预留高度
-          └─ Root cause: DYYY 只修改了 cell/contentView，没有在表格最终布局阶段统一恢复宿主全高
+  └─ Proximate cause: Feed 容器和 AWEFeedTableView 仍按顶部导航、底栏之间的可用区域布局
+      └─ Underlying cause: 40.7.0 在宿主控制器、表格和 cell 之间保留旧的 inset/frame 组合
+          └─ Root cause: DYYY 只修改了 cell/contentView，没有在表格最终布局阶段把容器、表格和 inset 统一到窗口全屏矩形
 
 个人主页视频详情黑条
-  └─ Proximate cause: 视频画面仍按 A spect-fit 的方式缩在容器内
-      └─ Underlying cause: TTPlayerView.scaleType 被错误设置为 1
-          └─ Root cause: 对 40.7.0 TTPlayerView 缩放枚举理解相反；二进制行为表明 0 才是 aspect-fill，1 是 aspect-fit
+  └─ Proximate cause: 视频画面仍按 aspect-fit 的方式缩在容器内
+      └─ Underlying cause: TTPlayerView.scaleType 仍走 `0` 的 fit 分支
+          └─ Root cause: 40.7.0 的 `1` 才是 aspect-fill；旧修复把枚举理解反了
 
 评论毛玻璃丢失与文字底板闪现
   └─ Proximate cause: 评论 Swift virtual view 在列表布局后重新写入背景色或富文本背景属性
@@ -58,9 +58,9 @@
 
 ### Layer 1: Feed 与视频详情画布
 
-- `AWEFeedTableView` 是 Feed 视频页的实际列表宿主。即使 cell/contentView 被拉高，列表自身仍可能保留底栏预留高度。
-- `TTPlayerView` 的 `scaleType` 是真实抖音播放器属性。对 `AwemeCore` 的静态反汇编确认 `0` 对应 `aspectFill`，`1` 对应 `aspectFit`。旧实现强制设置为 `1`，只会让视频更小并继续保留黑边。
-- 个人主页详情页还依赖 `AWEAwemeDetailTableViewCell` 和 `AWEAwemeBaseViewController` 的播放器 frame 回调，仅修改 `TTPlayerView` 不足以覆盖切换视频的时序。
+- `AWEFeedTableViewController.view` 和 `AWEFeedTableView` 是 Feed 视频页的实际两层布局宿主。即使 cell/contentView 被拉高，宿主控制器或表格仍可能保留顶栏下方的起点、底栏预留高度和 `contentInset`。
+- `TTPlayerView` 的 `scaleType` 是真实抖音播放器属性。对 `AwemeCore` 的静态反汇编确认：`scaleType=0` 固定容器的一条边并缩小另一条边，是 aspect-fit；`scaleType=1` 扩展另一条边并裁切溢出内容，是 aspect-fill。旧实现使用 `0`，所以竖屏详情仍会留下大面积黑条。
+- 个人主页详情页还依赖 `AWEAwemeDetailTableView`、`AWEAwemeDetailTableViewCell` 和 `AWEAwemeBaseViewController` 的最终 frame 回调。只修改 `TTPlayerView.scaleType` 无法覆盖切换视频时重新计算的表格和播放器 frame。
 
 ### Layer 2: 评论 Swift virtual view
 
@@ -84,24 +84,26 @@
 
 | 层级 | 文件:行 | 关键值 / 调用 |
 |---|---|---|
-| 首页列表 | `DYYY.xm:7759` | `AWEFeedTableView.layoutSubviews` 将高度恢复为 `self.superview.bounds.height` |
-| 首页 cell | `DYYY.xm:7694` | `viewDidLayoutSubviews` 处理 Feed cell 内容高度 |
-| 播放器 | `DYYY.xm:8487` | `TTPlayerView.layoutSubviews` 保存/恢复原始 `scaleType` |
+| 首页控制器 | `DYYY.xm:7813` | `AWEFeedTableViewController.viewDidLayoutSubviews` 将宿主视图对齐窗口全屏矩形 |
+| 首页列表 | `DYYY.xm:7841` | `AWEFeedTableView.layoutSubviews` 校正 frame 并将上下 `contentInset` 清零 |
+| 播放器 | `DYYY.xm:8613` | `TTPlayerView.layoutSubviews` 保存/恢复原始 `scaleType`，全屏竖屏播放时使用 `1` |
 | 播放器枚举 | `AwemeHeaders.h:1533` | `scaleType`、`setScaleType:`、`updateVideoFrame` |
-| 主页详情 | `DYYY.xm:8441` | `AWEAwemeDetailTableViewCell.playerNotCoverBottomBarEnable` 返回 `NO` |
-| 主页详情 frame | `DYYY.xm:8451` | `adjustVideoFrameIfNeededWithPanelType:` 调用全屏 frame |
-| 评论清理入口 | `DYYY.xm:7106` | `AWEListKitMagicCollectionView.layoutSubviews` 同步清理 |
-| 评论列表类判断 | `DYYYUtils.m:1207` | 补充 `VirtualView`、`UserName`、`Time`、`Content` |
+| 主页详情 cell | `DYYY.xm:8587` | `AWEAwemeDetailTableViewCell.playerNotCoverBottomBarEnable` 返回 `NO` |
+| 主页详情表格 | `DYYY.xm:8535` | `AWEAwemeDetailTableView.layoutSubviews` 校正全屏 frame 和 inset |
+| 主页详情播放器 frame | `DYYY.xm:8509` | `AWEAwemeBaseViewController.setPlayerViewFrame:clipsToBounds:` 统一全屏 frame |
+| 评论清理入口 | `DYYY.xm:7160` | `AWEListKitMagicCollectionView.layoutSubviews` 同步清理 |
+| 评论文本 Hook | `DYYY.xm:703` | `DYYYClearCommentTextArtifacts` 清理背景、富文本边框并调整前景色 |
+| 评论列表类判断 | `DYYYUtils.m:1221` | 补充 `VirtualView`、`UserName`、`Time`、`Content`、`TextView` |
 | 透明度读取 | `DYYYUtils.m:1192` | 新百分比键优先，兼容旧 0-1 键 |
-| 模糊应用 | `DYYYUtils.m:1287` | `applyCommentPanelBlurToRootViewController:transparency:` |
-| 清理根因 | `DYYYUtils.m:1561` | `clearCommentBlurBackgroundsNowInView:` 同步清理 |
+| 模糊应用 | `DYYYUtils.m:1348` | `applyCommentPanelBlurToRootViewController:transparency:` |
+| 清理根因 | `DYYYUtils.m:1545` | `clearCommentBlurBackgroundsNowInView:` 同步清理 |
 | 设置写入 | `DYYYSettingsHelper.m:20` | 写入后主线程发布透明度变化通知 |
 | 设置 UI | `DYYYSettingViewController.m:158` | 评论区毛玻璃开关和百分比输入项 |
 
 Phase 1 出口的命名假设:
 
-- H1: 首页视频的底部空隙由 `AWEFeedTableView` 的旧高度约束造成，需要恢复宿主全高。
-- H2: 个人主页视频详情被错误使用 `scaleType=1`，并且 detail cell 的 frame 回调没有覆盖切换过程。
+- H1: 首页视频未全屏由容器、`AWEFeedTableView` 的旧 frame/inset 共同造成，需要同时校正宿主和列表。
+- H2: 个人主页视频详情使用 `scaleType=0` 的 fit 分支，并且 detail table/cell 的 frame 回调没有统一覆盖切换过程。
 - H3: 评论首帧白框来自 Swift virtual view 在 `layoutSubviews` 后重写背景/富文本属性。
 - H4: 透明度问题来自新百分比键、旧 0-1 键及 blur/tint 映射不一致。
 
@@ -113,6 +115,7 @@ Phase 1 出口的命名假设:
   - `-[TTPlayerView scaledRectFrom:ratio:scaleType:]`
   - `-[TTPlayerView setScaleType:]`
   - `-[TTPlayerView updateVideoFrame]`
+- `scaledRectFrom:ratio:scaleType:` 在 `0x1327287c` 的分支明确比较 `scaleType` 与 `0/1`：`0` 采用保持比例后缩边，`1` 采用固定一条边后扩边裁切。
 - 真实评论 Swift 类名从 `AwemeCore` 中确认，覆盖昵称、时间、正文和 virtual label。
 - 设置到应用的静态链路确认：
   1. `DYYYSettingViewController` 写入百分比字符串。
@@ -127,8 +130,8 @@ Phase 1 出口的命名假设:
 
 | 层 | 证据 |
 |---|---|
-| Feed 高度 | cell 内容高度与 `AWEFeedTableView` 宿主高度分开控制，旧代码仅处理前者 |
-| 播放器缩放 | `AwemeCore` 反汇编显示 `scaleType=0` 为填充、`scaleType=1` 为适应 |
+| Feed 全屏 | 控制器视图、表格 frame 和 `contentInset` 分开控制，旧代码没有一起校正 |
+| 播放器缩放 | `AwemeCore` 反汇编显示 `scaleType=0` 为适应、`scaleType=1` 为填充裁切 |
 | 评论标签 | 真实类名包含 `VirtualView`、`UserName`、`Time`、`Content`，旧名单覆盖不足 |
 | 首帧闪现 | 旧清理是延迟异步执行，列表 `layoutSubviews` 期间没有同步清理 |
 | 透明度 | 新 UI 使用 0-100，旧值使用 0-1，必须有兼容归一化和 `100%` 的移除分支 |
@@ -140,57 +143,79 @@ Phase 1 出口的命名假设:
 | 继续只放大评论列表背景 | 不能覆盖 Swift virtual view 的富文本背景和 cell 复用，放弃 |
 | 使用固定延时清底 | 首帧仍会闪，且不同机型布局耗时不同，放弃 |
 | 在列表布局完成时同步清理，并保留一次主线程兜底 | 能覆盖首帧和后续异步配置，保留 |
-| 继续使用 `scaleType=1` | 与真实 40.7.0 二进制行为相反，放弃 |
+| 继续使用 `scaleType=0` | 40.7.0 会走 aspect-fit，黑条不会消失，放弃 |
+| 全屏竖屏播放使用 `scaleType=1` | 与二进制反汇编一致，画面填满并裁切溢出部分，采用 |
 | 在宿主、detail cell 和播放器三层同时校正画布 | 能覆盖首页、详情页和切换时序，采用 |
 | `100%` 仅把 alpha 设为 0 | 仍可能留下透明模糊层和 tint 累加，放弃 |
 | `100%` 直接移除 blur 和 tint | 语义明确且能消除黑色叠层，采用 |
 
 ## 四、修复方案
 
-### 改动 1: 首页 Feed 宿主高度
+### 改动 1: 首页 Feed 宿主全屏
 
 `DYYY.xm`:
 
 ```objc
+%hook AWEFeedTableViewController
+- (void)viewDidLayoutSubviews {
+    %orig;
+    if (!DYYYGetBool(@"DYYYEnableFullScreen") || !self.view.superview) {
+        return;
+    }
+    CGRect targetRect = [DYYYUtils fullScreenRectForView:self.view];
+    if (!CGRectIsNull(targetRect)) {
+        self.view.frame = targetRect;
+    }
+}
+%end
+
 %hook AWEFeedTableView
 - (void)layoutSubviews {
     %orig;
     if (!DYYYGetBool(@"DYYYEnableFullScreen") || !self.superview) {
         return;
     }
-    CGFloat targetHeight = CGRectGetHeight(self.superview.bounds);
-    CGRect frame = self.frame;
-    if (targetHeight > 0 && fabs(CGRectGetHeight(frame) - targetHeight) > 0.5) {
-        frame.size.height = targetHeight;
-        self.frame = frame;
+    CGRect targetRect = [DYYYUtils fullScreenRectForView:self];
+    if (!CGRectIsNull(targetRect)) {
+        self.frame = targetRect;
+        UIEdgeInsets contentInset = self.contentInset;
+        contentInset.top = 0.0;
+        contentInset.bottom = 0.0;
+        self.contentInset = contentInset;
     }
 }
 %end
 ```
 
-理由: 在列表最终布局阶段覆盖旧版预留高度，避免只修改 cell 后底部仍留空。
+理由: 同时把控制器宿主和列表对齐到窗口矩形，并清除旧版顶栏/底栏预留的 inset。只拉高 cell 不能改变录像画面在屏幕中的起点，也不能消除列表自身的裁切。
 
 ### 改动 2: 评论 Swift virtual view 与首帧清理
 
 `DYYY.xm` 在 `AWEListKitMagicCollectionView.layoutSubviews` 完成后同步调用清理；`DYYYUtils.m` 扩展类名匹配并清理 `NSAttributedString` 背景/边框属性。
 
 ```objc
-BOOL isCommentPanelText = isCommentPanelListClass &&
-                          ([className containsString:@"Label"] ||
-                           [className containsString:@"Fold"] ||
-                           [className containsString:@"VirtualView"] ||
-                           [className containsString:@"UserName"] ||
-                           [className containsString:@"Time"] ||
-                           [className containsString:@"Content"]);
-```
+static void DYYYClearCommentTextArtifacts(UIView *view) {
+    if (![DYYYUtils shouldClearCommentBlurBackgroundsForView:view]) {
+        return;
+    }
+    view.backgroundColor = [UIColor clearColor];
+    view.layer.backgroundColor = [UIColor clearColor].CGColor;
+    view.opaque = NO;
 
-```objc
-+ (void)clearCommentBlurBackgroundsNowInView:(UIView *)view {
-    [self clearCommentBlurBackgroundsInView:view depth:0];
+    NSAttributedString *cleanedText =
+        [DYYYUtils commentBlurCleanedAttributedText:[view valueForKey:@"attributedText"]
+                                            forView:view];
+    if (cleanedText) {
+        [view setValue:cleanedText forKey:@"attributedText"];
+    }
 }
 ```
 
-理由: 同时覆盖普通 view 的 `backgroundColor`、评论富文本背景和 cell 复用，避免“刚打开先白框，再慢慢消失”。
+理由: `UILabel`、`YYLabel` 和 Swift VirtualView 都会在首帧写入 `backgroundColor`、`NSBackgroundColorAttributeName`、`YYTextBorder` 或深色前景。统一在 setter、`didMoveToWindow`、`layoutSubviews` 和评论列表完成布局时清理，才能覆盖首帧以及 cell 复用后的写入。
+
+### 改动 2.1: 修复重复 Hook
+
+首次 CI 在 `DYYY.xm` 中同时声明了两个 `UILabel.layoutSubviews`，并且直接读取了仅有前向声明的 `YYLabel` 属性，导致 Logos 生成重复符号和 UIKit 属性编译错误。最终实现改为一个文件级清理函数，并只保留一个 `UILabel.layoutSubviews` Hook；`YYLabel` 通过 `UIView`/KVC 访问共享属性。CI run `40024502368` 已通过。
 
 ### 改动 3: 百分比透明度和全透明分支
 
@@ -215,12 +240,11 @@ if (fullyTransparent) {
 
 ### 改动 4: 主页视频详情全屏 frame
 
-`DYYY.xm` 在 `AWEAwemeDetailTableViewCell` 中关闭底栏覆盖限制，并在 `adjustVideoFrameIfNeededWithPanelType:` 后再次应用全屏 frame；`TTPlayerView` 改为 `scaleType=0` 并调用 `updateVideoFrame`。
+`DYYY.xm` 在 detail table、detail cell 和 `AWEAwemeBaseViewController` 三条路径统一 frame；`TTPlayerView` 在全屏竖屏播放时使用 `scaleType=1`。
 
 ```objc
 - (BOOL)playerNotCoverBottomBarEnable {
     if (DYYYGetBool(@"DYYYEnableFullScreen") &&
-        DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
         (self.homepageUser != nil || [DYYYUtils isProfileVideoDetailContext:self]) &&
         ![DYYYUtils isCommentPanelPresentedInContext:self]) {
         return NO;
@@ -229,7 +253,15 @@ if (fullyTransparent) {
 }
 ```
 
-理由: 40.7.0 的详情页黑条不是单纯背景色问题，而是播放器画布仍使用 aspect-fit 的尺寸。必须在 detail cell frame、播放器容器和 `TTPlayerView` 三层一起校正。
+```objc
+if (shouldFillScreen) {
+    if (self.scaleType != 1) {
+        [self setScaleType:1];
+    }
+}
+```
+
+理由: 40.7.0 的详情页黑条不是单纯背景色问题，而是播放器画布仍使用 aspect-fit 的尺寸。`scaleType=1` 会扩展播放器内容并裁切溢出，配合 detail table、cell 和容器 frame 才能铺满竖屏画布。
 
 ### 不动什么 / 兼容性说明
 
@@ -244,27 +276,27 @@ if (fullyTransparent) {
 
 | 检查项 | 结果 |
 |---|---|
-| CI 构建 | GitHub Actions run `40013415370` 成功，来源提交 `6835dcc` |
-| 版本 | `control` 与 `DYYYConstants.h` 均为 `40.7.0-19` |
-| dylib 版本 | 三个 deb 内 dylib 均能匹配到 `40.7.0-19`，每个命中 2 次 |
+| CI 构建 | GitHub Actions run `40024502368` 成功，来源提交 `e29eb25` |
+| 版本 | `control` 与 `DYYYConstants.h` 均为 `40.7.0-20` |
+| dylib 版本 | 三个 deb 内 dylib 均能匹配到 `40.7.0-20`，每个命中 2 次 |
 | Mach-O | 三个 deb 内 `DYYY.dylib` 均为 fat Mach-O，包含 `ARM64 subtype 0` 与 `ARM64 subtype 2147483650`（arm64/arm64e） |
 | Rootful 载荷 | `Library/MobileSubstrate/DynamicLibraries/DYYY.dylib` |
 | Rootless 载荷 | `var/jb/Library/MobileSubstrate/DynamicLibraries/DYYY.dylib` |
 | RootHide 载荷 | `Library/MobileSubstrate/DynamicLibraries/DYYY.dylib` |
-| 自签包 | `DYYY-40.7.0-19.selfsign.zip` 根目录只含 `19DYYY.dylib` 和 `DYYY.plist` |
+| 自签包 | `DYYY-40.7.0-20.selfsign.zip` 根目录只含 `20DYYY.dylib` 和 `DYYY.plist` |
 | 自签过滤器 | plist 可解析，Bundles 为 `com.ss.iphone.ugc.Aweme` 和 `com.ss.iphone.ugc.aweme.lite` |
-| 调试日志 | 专用调试前缀扫描命中 0 |
+| 静态检查 | `git diff --check` 通过，专用调试前缀扫描命中 0 |
 
 ### 待真机验证
 
 | 指标 | 修复前 | 本次预期 |
 |---|---|---|
-| 首页 Feed 底栏间隙 | 视频整体抬升，底部有空隙 | 表格与宿主同高 |
+| 首页 Feed 全屏 | 视频从顶栏下方开始，底部有空隙 | 控制器、表格和 inset 统一到窗口全屏矩形 |
 | 评论首帧文字底板 | 昵称、时间、正文先白后消失 | 列表布局完成即清理，不应出现白色底板 |
 | 评论区毛玻璃 | 背景丢失或文字变黑 | 评论上面板保留 blur，文字背景清空 |
 | 透明度 80% | 直接变黑 | 低强度 blur，不出现黑色叠层 |
 | 透明度 100% | 仍不是全透明 | 移除 blur/tint，完全透明 |
-| 个人主页视频详情 | 半屏、下方黑条或上一视频残留 | 全宽竖屏画布，无底部黑条 |
+| 个人主页视频详情 | 半屏、下方黑条或上一视频残留 | `scaleType=1` 补满全宽竖屏画布，无底部黑条 |
 
 当前机器没有连接 iOS 真机，无法在此会话中通过 `Console.app`/设备日志复现并截图确认首帧时序。上述 UI 项应在自签安装后按复现步骤确认；CI 成功和包结构检查不能替代真机结果。
 
@@ -272,18 +304,18 @@ if (fullyTransparent) {
 
 | 文件 | 改动 |
 |---|---|
-| `DYYY.xm` | Feed 表格全高、评论列表同步清理、主页详情画布与 `TTPlayerView scaleType=0` |
+| `DYYY.xm` | Feed 容器/表格全屏、评论文字与列表清理、主页详情画布与 `TTPlayerView scaleType=1` |
 | `DYYYUtils.h/.m` | Swift virtual view 识别、同步背景清理、百分比透明度与全透明移除 |
 | `DYYYSettingsHelper.m` | 透明度设置变化通知 |
 | `DYYYSettingViewController.m` | 百分比输入 UI |
 | `DYYYSettings.xm` | 设置页百分比文案与标识 |
 | `AwemeHeaders.h` | 40.7.0 播放器/detail cell 接口声明 |
 | `DYYYConstants.h` | 版本和透明度配置键 |
-| `control` | Debian 包版本 `40.7.0-19` |
+| `control` | Debian 包版本 `40.7.0-20` |
 
 ## 七、后续建议
 
-1. **真机安装验证** — 自签注入 `DYYY-40.7.0-19.selfsign.zip` 后，按首页、评论区、个人主页视频详情三条路径逐项确认，并记录设备型号/iOS 版本。
+1. **真机安装验证** — 自签注入 `DYYY-40.7.0-20.selfsign.zip` 后，按首页、评论区、个人主页视频详情三条路径逐项确认，并记录设备型号/iOS 版本。
 2. **首帧回归截图** — 对评论区打开后的第 1 帧、布局完成帧和滚动复用帧各留一张截图，防止异步背景再次回归。
 3. **保留旧值兼容测试** — 用仍保存 `DYYYCommentBlurTransparent=0.8` 的旧配置启动一次，确认百分比迁移不会覆盖用户值。
-4. **版本命名** — 后续同版本修复继续使用 `40.7.0-20`、`40.7.0-21` 修订号，不再回到 `2.2-*` 主版本。
+4. **版本命名** — 后续同版本修复继续使用 `40.7.0-21`、`40.7.0-22` 修订号，不再回到 `2.2-*` 主版本。
