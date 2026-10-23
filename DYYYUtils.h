@@ -119,6 +119,11 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view;
 
 /**
+ * @brief 立即清理评论区列表及列表项的不透明背景，供列表布局阶段同步调用。
+ */
++ (void)clearCommentBlurBackgroundsNowInView:(UIView *)view;
+
+/**
  * 显示提示信息
  * @param text 要显示的文本
  */

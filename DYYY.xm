@@ -7036,6 +7036,11 @@ static Class tabBarButtonClass = nil;
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
     dyyyCommentViewVisible = YES;
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(dyyyCommentBlurTransparencyDidChange)
+                                                 name:DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION
+                                               object:nil];
     [self dyyyApplyCommentBlurIfNeeded];
 }
 
@@ -7044,11 +7049,6 @@ static Class tabBarButtonClass = nil;
     dyyyCommentViewVisible = YES;
     updateSpeedButtonVisibility();
     updateClearButtonVisibility();
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(dyyyCommentBlurTransparencyDidChange)
-                                                 name:DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION
-                                               object:nil];
     [self dyyyApplyCommentBlurIfNeeded];
     NSString *transparentValue = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYTopBarTransparent"];
     if (transparentValue && transparentValue.length > 0) {
@@ -7099,6 +7099,22 @@ static Class tabBarButtonClass = nil;
 
     float commentBlurTransparency = [DYYYUtils commentBlurTransparencyPercent] / 100.0;
     [DYYYUtils applyCommentPanelBlurToRootViewController:self transparency:commentBlurTransparency];
+}
+
+%end
+
+%hook AWEListKitMagicCollectionView
+
+- (void)layoutSubviews {
+    %orig;
+
+    if (!DYYYGetBool(@"DYYYEnableCommentBlur")) {
+        return;
+    }
+    if ([DYYYUtils isCommentPanelContext:self] ||
+        [DYYYUtils isCommentPanelPresentedInContext:self]) {
+        [DYYYUtils clearCommentBlurBackgroundsNowInView:(UIView *)self];
+    }
 }
 
 %end
@@ -7736,6 +7752,25 @@ static Class tabBarButtonClass = nil;
 %new
 - (void)adjustPlaybackSpeed:(float)speed {
     [self setVideoControllerPlaybackRate:speed];
+}
+
+%end
+
+%hook AWEFeedTableView
+
+- (void)layoutSubviews {
+    %orig;
+
+    if (!DYYYGetBool(@"DYYYEnableFullScreen") || !self.superview) {
+        return;
+    }
+
+    CGFloat targetHeight = CGRectGetHeight(self.superview.bounds);
+    CGRect frame = self.frame;
+    if (targetHeight > 0 && fabs(CGRectGetHeight(frame) - targetHeight) > 0.5) {
+        frame.size.height = targetHeight;
+        self.frame = frame;
+    }
 }
 
 %end
@@ -8487,13 +8522,15 @@ static Class TagViewClass = nil;
         if (!savedScaleType) {
             objc_setAssociatedObject(self, &kDYYYOriginalScaleTypeKey, @(self.scaleType), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
-        if (self.scaleType != 1) {
-            [self setScaleType:1];
+        if (self.scaleType != 0) {
+            [self setScaleType:0];
+            [self updateVideoFrame];
         }
     } else if (savedScaleType) {
         NSInteger originalScaleType = savedScaleType.integerValue;
         if (self.scaleType != originalScaleType) {
             [self setScaleType:originalScaleType];
+            [self updateVideoFrame];
         }
         objc_setAssociatedObject(self, &kDYYYOriginalScaleTypeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }

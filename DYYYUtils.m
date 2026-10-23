@@ -389,6 +389,8 @@ static BOOL DYYYUtilsWriteStaticImageToGIF(UIImage *image, NSURL *gifURL) {
 + (void)clearCommentPanelBackgroundForView:(UIView *)view;
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth;
 + (void)clearCommentPanelPresentationArtifactsInViewController:(UIViewController *)viewController;
++ (void)clearCommentPanelObstructionBackgroundsInRootView:(UIView *)rootView
+                                               keepingView:(UIView *)keepView;
 + (id)objectValueForIvarNamed:(NSString *)ivarName onObject:(id)object;
 + (UIViewController *)commentPanelInnerViewControllerForRootViewController:(UIViewController *)rootViewController;
 + (UIViewController *)findViewControllerWithClassNameToken:(NSString *)classNameToken
@@ -1222,8 +1224,14 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
 
     NSString *className = NSStringFromClass([view class]);
-    BOOL isCommentPanelText = [className containsString:@"AWECommentPanelListSwiftImpl"] &&
-                              ([className containsString:@"Label"] || [className containsString:@"Fold"]);
+    BOOL isCommentPanelListClass = [className containsString:@"AWECommentPanelListSwiftImpl"];
+    BOOL isCommentPanelText = isCommentPanelListClass &&
+                              ([className containsString:@"Label"] ||
+                               [className containsString:@"Fold"] ||
+                               [className containsString:@"VirtualView"] ||
+                               [className containsString:@"UserName"] ||
+                               [className containsString:@"Time"] ||
+                               [className containsString:@"Content"]);
     BOOL isCommentInputSurface = [className containsString:@"AWEComment"] &&
                                  ([className containsString:@"InputBackgroundView"] ||
                                   [className containsString:@"CommentInputTextView"] ||
@@ -1301,6 +1309,7 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
         topLevelPanelView = topLevelPanelView.superview;
     }
     [self clearCommentPanelBackgroundForView:topLevelPanelView];
+    [self clearCommentPanelObstructionBackgroundsInRootView:rootView keepingView:topLevelPanelView];
 
     UIVisualEffectView *blurView = nil;
     for (UIView *subview in rootView.subviews) {
@@ -1332,7 +1341,7 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
     }
 
     blurView.hidden = NO;
-    blurView.alpha = 1.0;
+    blurView.alpha = MAX(0.0, 1.0 - normalizedTransparency);
     blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     blurView.layer.cornerRadius = panelView.layer.cornerRadius;
     blurView.layer.maskedCorners = panelView.layer.maskedCorners;
@@ -1353,9 +1362,9 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
         tintView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [blurView.contentView addSubview:tintView];
     }
-    CGFloat tintVisibility = MAX(0.0, 1.0 - normalizedTransparency);
+    CGFloat tintVisibility = pow(MAX(0.0, 1.0 - normalizedTransparency), 1.5);
     tintView.backgroundColor = isDarkMode ? [UIColor blackColor] : [UIColor whiteColor];
-    tintView.alpha = tintVisibility * (isDarkMode ? 0.62 : 0.72);
+    tintView.alpha = tintVisibility * (isDarkMode ? 0.55 : 0.65);
 
     NSArray<UIView *> *rootSubviews = rootView.subviews;
     NSUInteger blurIndex = [rootSubviews indexOfObjectIdenticalTo:blurView];
@@ -1369,6 +1378,23 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
     blurView.frame = [panelView convertRect:panelView.bounds toView:rootView];
 
     [self clearCommentBlurBackgroundsInView:panelView depth:0];
+}
+
++ (void)clearCommentPanelObstructionBackgroundsInRootView:(UIView *)rootView
+                                               keepingView:(UIView *)keepView {
+    if (!rootView) {
+        return;
+    }
+
+    for (UIView *subview in rootView.subviews) {
+        if (subview == keepView || subview.tag == kDYYYCommentPanelBlurTag) {
+            continue;
+        }
+        [self clearCommentPanelBackgroundForView:subview];
+        if ([subview isKindOfClass:[UIVisualEffectView class]]) {
+            ((UIVisualEffectView *)subview).effect = nil;
+        }
+    }
 }
 
 + (UIViewController *)commentPanelInnerViewControllerForRootViewController:(UIViewController *)rootViewController {
@@ -1522,14 +1548,18 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
 }
 
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view {
-    [self clearCommentBlurBackgroundsInView:view depth:0];
+    [self clearCommentBlurBackgroundsNowInView:view];
 
     // 评论 cell 会在列表布局结束后继续配置富文本，下一轮主线程再清一次可消除白底闪现。
     dispatch_async(dispatch_get_main_queue(), ^{
         if (view.window) {
-            [self clearCommentBlurBackgroundsInView:view depth:0];
+            [self clearCommentBlurBackgroundsNowInView:view];
         }
     });
+}
+
++ (void)clearCommentBlurBackgroundsNowInView:(UIView *)view {
+    [self clearCommentBlurBackgroundsInView:view depth:0];
 }
 
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth {
