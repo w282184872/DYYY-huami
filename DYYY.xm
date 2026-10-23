@@ -700,6 +700,36 @@ static BOOL DYYYShouldHandleSpeedFeatures(void) {
 %end
 %end
 
+static void DYYYClearCommentTextArtifacts(UIView *view) {
+    if (![DYYYUtils shouldClearCommentBlurBackgroundsForView:view]) {
+        return;
+    }
+
+    view.backgroundColor = [UIColor clearColor];
+    view.layer.backgroundColor = [UIColor clearColor].CGColor;
+    view.opaque = NO;
+
+    NSAttributedString *attributedText = nil;
+    if ([view respondsToSelector:@selector(attributedText)]) {
+        id value = [view valueForKey:@"attributedText"];
+        if ([value isKindOfClass:[NSAttributedString class]]) {
+            attributedText = value;
+        }
+    }
+    NSAttributedString *cleanedText = [DYYYUtils commentBlurCleanedAttributedText:attributedText forView:view];
+    if (cleanedText != attributedText) {
+        [view setValue:cleanedText forKey:@"attributedText"];
+    }
+
+    if ([view respondsToSelector:@selector(textColor)]) {
+        UIColor *textColor = [view valueForKey:@"textColor"];
+        UIColor *adjustedTextColor = [DYYYUtils commentBlurAdjustedTextColor:textColor];
+        if (adjustedTextColor != textColor && ![adjustedTextColor isEqual:textColor]) {
+            [view setValue:adjustedTextColor forKey:@"textColor"];
+        }
+    }
+}
+
 // 前面的AWEDateTimeFormatter会导致图文视频展开时间文本变成时间戳，这里处理下
 %hook YYLabel
 
@@ -739,34 +769,14 @@ static BOOL DYYYShouldHandleSpeedFeatures(void) {
     }
 }
 
-%new
-- (void)dyyyClearCommentTextArtifacts {
-    if (![DYYYUtils shouldClearCommentBlurBackgroundsForView:(UIView *)self]) {
-        return;
-    }
-
-    self.backgroundColor = [UIColor clearColor];
-    self.layer.backgroundColor = [UIColor clearColor].CGColor;
-    self.opaque = NO;
-
-    NSAttributedString *cleanedText = [DYYYUtils commentBlurCleanedAttributedText:self.attributedText forView:(UIView *)self];
-    if (cleanedText != self.attributedText) {
-        [self setAttributedText:cleanedText];
-    }
-    UIColor *adjustedTextColor = [DYYYUtils commentBlurAdjustedTextColor:self.textColor];
-    if (![adjustedTextColor isEqual:self.textColor]) {
-        self.textColor = adjustedTextColor;
-    }
-}
-
 - (void)layoutSubviews {
     %orig;
-    [self dyyyClearCommentTextArtifacts];
+    DYYYClearCommentTextArtifacts((UIView *)self);
 }
 
 - (void)didMoveToWindow {
     %orig;
-    [self dyyyClearCommentTextArtifacts];
+    DYYYClearCommentTextArtifacts((UIView *)self);
 }
 
 %end
@@ -786,34 +796,9 @@ static BOOL DYYYShouldHandleSpeedFeatures(void) {
     %orig(textColor);
 }
 
-%new
-- (void)dyyyClearCommentTextArtifacts {
-    if (![DYYYUtils shouldClearCommentBlurBackgroundsForView:(UIView *)self]) {
-        return;
-    }
-
-    self.backgroundColor = [UIColor clearColor];
-    self.layer.backgroundColor = [UIColor clearColor].CGColor;
-    self.opaque = NO;
-
-    NSAttributedString *cleanedText = [DYYYUtils commentBlurCleanedAttributedText:self.attributedText forView:(UIView *)self];
-    if (cleanedText != self.attributedText) {
-        [self setAttributedText:cleanedText];
-    }
-    UIColor *adjustedTextColor = [DYYYUtils commentBlurAdjustedTextColor:self.textColor];
-    if (![adjustedTextColor isEqual:self.textColor]) {
-        self.textColor = adjustedTextColor;
-    }
-}
-
-- (void)layoutSubviews {
-    %orig;
-    [self dyyyClearCommentTextArtifacts];
-}
-
 - (void)didMoveToWindow {
     %orig;
-    [self dyyyClearCommentTextArtifacts];
+    DYYYClearCommentTextArtifacts((UIView *)self);
 }
 
 %end
@@ -4104,6 +4089,7 @@ static NSHashTable *processedParentViews = nil;
 
 - (void)layoutSubviews {
     %orig;
+    DYYYClearCommentTextArtifacts(self);
 
     BOOL hideRightLabel = DYYYGetBool(@"DYYYHideRightLabel");
     if (!hideRightLabel)
