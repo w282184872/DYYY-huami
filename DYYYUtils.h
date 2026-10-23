@@ -41,6 +41,9 @@ NS_ASSUME_NONNULL_BEGIN
 /* 判断对象是否位于个人主页进入的视频详情页 */
 + (BOOL)isProfileVideoDetailContext:(id)context;
 
+/* 返回视图所在宿主坐标系中的窗口全屏矩形 */
++ (CGRect)fullScreenRectForView:(UIView *)view;
+
 /* 判断对象是否位于评论面板容器内 */
 + (BOOL)isCommentPanelContext:(id)context;
 

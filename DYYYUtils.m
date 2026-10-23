@@ -810,16 +810,27 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
 
     NSHashTable *visited = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
-    id current = context;
+    NSMutableArray<id> *pending = [NSMutableArray arrayWithObject:context];
     BOOL hasDetailMarker = NO;
     BOOL hasProfileMarker = NO;
     NSArray<NSString *> *referKeys = @[@"detailReferString", @"referString", @"detailEnterFrom", @"enterFrom", @"previousPage"];
-    NSArray<NSString *> *profileIdentityKeys = @[@"homepageUser", @"homepageUserModel"];
-    NSArray<NSString *> *relatedContextKeys = @[@"parentVC", @"viewController", @"currentViewController", @"containerVC", @"previousPage", @"userProfileController"];
+    NSArray<NSString *> *profileIdentityKeys = @[@"homepageUser", @"homepageUserModel", @"userProfileController"];
+    NSArray<NSString *> *relatedContextKeys = @[
+        @"parentVC",
+        @"viewController",
+        @"currentViewController",
+        @"containerVC",
+        @"awemeBaseViewController",
+        @"previousPage",
+        @"userProfileController",
+        @"superCell"
+    ];
 
-    for (NSUInteger depth = 0; current && depth < 32; depth++) {
+    for (NSUInteger depth = 0; pending.count > 0 && depth < 64; depth++) {
+        id current = pending.firstObject;
+        [pending removeObjectAtIndex:0];
         if ([visited containsObject:current]) {
-            break;
+            continue;
         }
         [visited addObject:current];
 
@@ -836,6 +847,11 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
             hasProfileMarker = YES;
         }
 
+        id isInDetailFeed = [self profileDetailValueForKey:@"isInDetailFeed" onObject:current];
+        if ([isInDetailFeed respondsToSelector:@selector(boolValue)] && [isInDetailFeed boolValue]) {
+            hasDetailMarker = YES;
+        }
+
         for (NSString *key in profileIdentityKeys) {
             id profileIdentity = [self profileDetailValueForKey:key onObject:current];
             if (profileIdentity && profileIdentity != [NSNull null]) {
@@ -850,14 +866,6 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
                 hasProfileMarker = YES;
                 break;
             }
-        }
-
-        id userProfileController = [self profileDetailValueForKey:@"userProfileController" onObject:current];
-        if (!userProfileController || userProfileController == [NSNull null]) {
-            userProfileController = [self objectValueForIvarNamed:@"_userProfileController" onObject:current];
-        }
-        if (userProfileController && userProfileController != [NSNull null]) {
-            hasProfileMarker = YES;
         }
 
         for (NSString *key in relatedContextKeys) {
@@ -894,6 +902,7 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
             if (relatedUserProfileController && relatedUserProfileController != [NSNull null]) {
                 hasProfileMarker = YES;
             }
+            [pending addObject:relatedContext];
         }
 
         if (hasDetailMarker && hasProfileMarker) {
@@ -901,17 +910,41 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
         }
 
         if ([current isKindOfClass:[UIViewController class]]) {
-            current = [(UIViewController *)current parentViewController];
+            UIViewController *parentViewController = [(UIViewController *)current parentViewController];
+            if (parentViewController) {
+                [pending addObject:parentViewController];
+            }
         } else if ([current isKindOfClass:[UIView class]]) {
-            current = [(UIView *)current nextResponder];
+            UIResponder *nextResponder = [(UIView *)current nextResponder];
+            if (nextResponder) {
+                [pending addObject:nextResponder];
+            }
         } else if ([current respondsToSelector:@selector(nextResponder)]) {
-            current = [current nextResponder];
-        } else {
-            current = nil;
+            UIResponder *nextResponder = [current nextResponder];
+            if (nextResponder) {
+                [pending addObject:nextResponder];
+            }
         }
     }
 
     return NO;
+}
+
++ (CGRect)fullScreenRectForView:(UIView *)view {
+    if (!view || !view.superview) {
+        return CGRectNull;
+    }
+
+    UIWindow *window = view.window ?: [self getActiveWindow];
+    if (!window || CGRectIsEmpty(window.bounds)) {
+        return CGRectNull;
+    }
+
+    CGRect targetRect = [window convertRect:window.bounds toView:view.superview];
+    if (CGRectIsNull(targetRect) || CGRectIsEmpty(targetRect)) {
+        return CGRectNull;
+    }
+    return targetRect;
 }
 
 + (BOOL)isCommentPanelContext:(id)context {
@@ -954,25 +987,67 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
 
     NSHashTable *visited = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
-    id current = context;
-    for (NSUInteger depth = 0; current && depth < 32; depth++) {
+    NSMutableArray<id> *pending = [NSMutableArray arrayWithObject:context];
+    NSArray<NSString *> *relatedContextKeys = @[
+        @"parentVC",
+        @"viewController",
+        @"currentViewController",
+        @"containerVC",
+        @"awemeBaseViewController",
+        @"interactionController",
+        @"commentVC",
+        @"superCell"
+    ];
+
+    for (NSUInteger depth = 0; pending.count > 0 && depth < 64; depth++) {
+        id current = pending.firstObject;
+        [pending removeObjectAtIndex:0];
         if ([visited containsObject:current]) {
-            break;
+            continue;
         }
         [visited addObject:current];
 
+        NSString *className = NSStringFromClass([current class]);
+        if ([className containsString:@"AWECommentContainerViewController"] ||
+            [className containsString:@"AWECommentPanelContainerSwiftImpl"] ||
+            [className containsString:@"AWECommentPanelListSwiftImpl"]) {
+            return YES;
+        }
+
         if ([current respondsToSelector:@selector(isCommentVCShowing)]) {
-            return [current isCommentVCShowing];
+            if ([current isCommentVCShowing]) {
+                return YES;
+            }
+        }
+        if ([current respondsToSelector:@selector(isCommentListShowing)]) {
+            if ([current isCommentListShowing]) {
+                return YES;
+            }
+        }
+
+        for (NSString *key in relatedContextKeys) {
+            id relatedContext = [self profileDetailValueForKey:key onObject:current];
+            if (!relatedContext || relatedContext == current || relatedContext == [NSNull null] || [visited containsObject:relatedContext]) {
+                continue;
+            }
+            [pending addObject:relatedContext];
         }
 
         if ([current isKindOfClass:[UIViewController class]]) {
-            current = [(UIViewController *)current parentViewController];
+            UIViewController *parentViewController = [(UIViewController *)current parentViewController];
+            if (parentViewController) {
+                [pending addObject:parentViewController];
+            }
         } else if ([current isKindOfClass:[UIView class]]) {
-            current = [(UIView *)current nextResponder];
+            UIResponder *nextResponder = [(UIView *)current nextResponder];
+            if (nextResponder) {
+                [pending addObject:nextResponder];
+            }
         } else if ([current respondsToSelector:@selector(nextResponder)]) {
-            current = [current nextResponder];
-        } else {
-            current = nil;
+            UIResponder *nextResponder = [current nextResponder];
+            if (nextResponder) {
+                [pending addObject:nextResponder];
+            }
         }
     }
 

@@ -331,6 +331,7 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @property(nonatomic, strong) AWEAwemeModel *model;
 @property(nonatomic, strong) NSString *referString;
 @property(nonatomic, assign) BOOL isCommentVCShowing;
+- (BOOL)isCommentListShowing;
 - (void)performCommentAction;
 - (void)performLikeAction;
 - (void)showSharePanel;
@@ -444,6 +445,8 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @end
 
 @interface AWEAwemeBaseViewController : UIViewController
+@property(nonatomic, strong) id videoController;
+- (BOOL)isCommentListShowing;
 - (void)setPlayerViewFrame:(CGRect)frame clipsToBounds:(BOOL)clipsToBounds;
 @end
 
@@ -453,8 +456,10 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @property(nonatomic, strong) id homepageUser;
 @property(nonatomic, strong) id parentVC;
 @property(nonatomic, strong) id previousPage;
+@property(nonatomic, strong) id viewController;
 @property(nonatomic, assign) BOOL isInDetailFeed;
 - (BOOL)playerNotCoverBottomBarEnable;
+- (void)adjustVideoFrameIfNeededWithPanelType:(NSUInteger)panelType;
 @end
 
 @interface AWEFeedGeneralViewCell : UIView
