@@ -114,6 +114,11 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSAttributedString *)commentBlurCleanedAttributedText:(NSAttributedString *)attributedText forView:(UIView *)view;
 
 /**
+ * @brief 将评论区的深色文字调整为白色，同时保留蓝色链接等强调色。
+ */
++ (nullable UIColor *)commentBlurAdjustedTextColor:(nullable UIColor *)textColor;
+
+/**
  * @brief 清理评论区列表及列表项的不透明背景，保留按钮、输入框和图片内容。
  */
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view;

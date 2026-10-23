@@ -739,6 +739,36 @@ static BOOL DYYYShouldHandleSpeedFeatures(void) {
     }
 }
 
+%new
+- (void)dyyyClearCommentTextArtifacts {
+    if (![DYYYUtils shouldClearCommentBlurBackgroundsForView:(UIView *)self]) {
+        return;
+    }
+
+    self.backgroundColor = [UIColor clearColor];
+    self.layer.backgroundColor = [UIColor clearColor].CGColor;
+    self.opaque = NO;
+
+    NSAttributedString *cleanedText = [DYYYUtils commentBlurCleanedAttributedText:self.attributedText forView:(UIView *)self];
+    if (cleanedText != self.attributedText) {
+        [self setAttributedText:cleanedText];
+    }
+    UIColor *adjustedTextColor = [DYYYUtils commentBlurAdjustedTextColor:self.textColor];
+    if (![adjustedTextColor isEqual:self.textColor]) {
+        self.textColor = adjustedTextColor;
+    }
+}
+
+- (void)layoutSubviews {
+    %orig;
+    [self dyyyClearCommentTextArtifacts];
+}
+
+- (void)didMoveToWindow {
+    %orig;
+    [self dyyyClearCommentTextArtifacts];
+}
+
 %end
 
 %hook UILabel
@@ -746,6 +776,44 @@ static BOOL DYYYShouldHandleSpeedFeatures(void) {
 - (void)setAttributedText:(NSAttributedString *)attributedText {
     NSAttributedString *cleanedText = [DYYYUtils commentBlurCleanedAttributedText:attributedText forView:(UIView *)self];
     %orig(cleanedText);
+}
+
+- (void)setTextColor:(UIColor *)textColor {
+    if ([DYYYUtils shouldClearCommentBlurBackgroundsForView:(UIView *)self]) {
+        %orig([DYYYUtils commentBlurAdjustedTextColor:textColor]);
+        return;
+    }
+    %orig(textColor);
+}
+
+%new
+- (void)dyyyClearCommentTextArtifacts {
+    if (![DYYYUtils shouldClearCommentBlurBackgroundsForView:(UIView *)self]) {
+        return;
+    }
+
+    self.backgroundColor = [UIColor clearColor];
+    self.layer.backgroundColor = [UIColor clearColor].CGColor;
+    self.opaque = NO;
+
+    NSAttributedString *cleanedText = [DYYYUtils commentBlurCleanedAttributedText:self.attributedText forView:(UIView *)self];
+    if (cleanedText != self.attributedText) {
+        [self setAttributedText:cleanedText];
+    }
+    UIColor *adjustedTextColor = [DYYYUtils commentBlurAdjustedTextColor:self.textColor];
+    if (![adjustedTextColor isEqual:self.textColor]) {
+        self.textColor = adjustedTextColor;
+    }
+}
+
+- (void)layoutSubviews {
+    %orig;
+    [self dyyyClearCommentTextArtifacts];
+}
+
+- (void)didMoveToWindow {
+    %orig;
+    [self dyyyClearCommentTextArtifacts];
 }
 
 %end
@@ -7367,7 +7435,7 @@ static Class tabBarButtonClass = nil;
         return;
     }
 
-    BOOL isProfileDetail = DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+    BOOL isProfileDetail = DYYYGetBool(@"DYYYEnableFullScreen") &&
                            [DYYYUtils isProfileVideoDetailContext:self] &&
                            ![DYYYUtils isCommentPanelPresentedInContext:self] &&
                            CGAffineTransformIsIdentity(self.view.transform);
@@ -7410,7 +7478,7 @@ static Class tabBarButtonClass = nil;
     BOOL useFullHeight = [currentReferString isEqualToString:@"general_search"] || [currentReferString isEqualToString:@"search_result"] || [currentReferString isEqualToString:@"search_ecommerce"] ||
                          [currentReferString isEqualToString:@"close_friends_moment"] || [currentReferString isEqualToString:@"offline_mode"] || [currentReferString isEqualToString:@"challenge"] ||
                          [currentReferString isEqualToString:@"general_search_scan"] || currentReferString == nil;
-    if (DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+    if (DYYYGetBool(@"DYYYEnableFullScreen") &&
         [DYYYUtils isProfileVideoDetailContext:self]) {
         useFullHeight = YES;
     }
@@ -7756,6 +7824,34 @@ static Class tabBarButtonClass = nil;
 
 %end
 
+%hook AWEFeedTableViewController
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+
+    if (!DYYYGetBool(@"DYYYEnableFullScreen") || !self.view.superview) {
+        return;
+    }
+
+    CGFloat screenWidth = CGRectGetWidth([UIScreen mainScreen].bounds);
+    if (CGRectGetWidth(self.view.frame) + 0.5 < screenWidth) {
+        return;
+    }
+
+    CGRect targetRect = [DYYYUtils fullScreenRectForView:self.view];
+    if (CGRectIsNull(targetRect) ||
+        CGRectGetHeight(targetRect) <= CGRectGetWidth(targetRect) ||
+        CGRectGetWidth(targetRect) + 0.5 < screenWidth) {
+        return;
+    }
+
+    if (!CGRectEqualToRect(self.view.frame, targetRect)) {
+        self.view.frame = targetRect;
+    }
+}
+
+%end
+
 %hook AWEFeedTableView
 
 - (void)layoutSubviews {
@@ -7765,11 +7861,26 @@ static Class tabBarButtonClass = nil;
         return;
     }
 
-    CGFloat targetHeight = CGRectGetHeight(self.superview.bounds);
-    CGRect frame = self.frame;
-    if (targetHeight > 0 && fabs(CGRectGetHeight(frame) - targetHeight) > 0.5) {
-        frame.size.height = targetHeight;
-        self.frame = frame;
+    CGRect targetRect = [DYYYUtils fullScreenRectForView:self];
+    if (CGRectIsNull(targetRect) ||
+        CGRectGetHeight(targetRect) <= CGRectGetWidth(targetRect) ||
+        CGRectGetWidth(targetRect) + 0.5 < CGRectGetWidth([UIScreen mainScreen].bounds)) {
+        return;
+    }
+
+    if (!CGRectEqualToRect(self.frame, targetRect)) {
+        self.clipsToBounds = NO;
+        self.frame = targetRect;
+    }
+
+    if ([self respondsToSelector:@selector(setContentInset:)]) {
+        UIScrollView *scrollView = (UIScrollView *)self;
+        UIEdgeInsets contentInset = scrollView.contentInset;
+        contentInset.top = 0.0;
+        contentInset.bottom = 0.0;
+        if (!UIEdgeInsetsEqualToEdgeInsets(scrollView.contentInset, contentInset)) {
+            scrollView.contentInset = contentInset;
+        }
     }
 }
 
@@ -8413,7 +8524,6 @@ static Class TagViewClass = nil;
 
 - (void)setPlayerViewFrame:(CGRect)frame clipsToBounds:(BOOL)clipsToBounds {
     if (DYYYGetBool(@"DYYYEnableFullScreen") &&
-        DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
         [DYYYUtils isProfileVideoDetailContext:self] &&
         ![DYYYUtils isCommentPanelPresentedInContext:self]) {
         UIView *playerView = nil;
@@ -8436,11 +8546,62 @@ static Class TagViewClass = nil;
 
 %end
 
+%hook AWEAwemeDetailTableView
+
+- (void)layoutSubviews {
+    %orig;
+
+    if (!DYYYGetBool(@"DYYYEnableFullScreen") ||
+        [DYYYUtils isCommentPanelPresentedInContext:self] ||
+        !CGAffineTransformIsIdentity(self.transform)) {
+        return;
+    }
+
+    id containerVC = self.containerVC;
+    BOOL isProfileDetail = [DYYYUtils isProfileVideoDetailContext:self] ||
+                           [DYYYUtils isProfileVideoDetailContext:containerVC];
+    if (!isProfileDetail && [containerVC respondsToSelector:@selector(homepageUserModel)]) {
+        isProfileDetail = [containerVC valueForKey:@"homepageUserModel"] != nil;
+    }
+    if (!isProfileDetail && [containerVC respondsToSelector:@selector(userProfileController)]) {
+        isProfileDetail = [containerVC valueForKey:@"userProfileController"] != nil;
+    }
+    if (!isProfileDetail || !self.superview) {
+        return;
+    }
+
+    CGRect targetRect = [DYYYUtils fullScreenRectForView:self];
+    if (CGRectIsNull(targetRect) ||
+        CGRectGetHeight(targetRect) <= CGRectGetWidth(targetRect) ||
+        CGRectGetWidth(targetRect) + 0.5 < CGRectGetWidth([UIScreen mainScreen].bounds)) {
+        return;
+    }
+
+    BOOL frameChanged = !CGRectEqualToRect(self.frame, targetRect);
+    if (frameChanged) {
+        self.frame = targetRect;
+    }
+
+    UIEdgeInsets contentInset = self.contentInset;
+    if (fabs(contentInset.top) > 0.5 || fabs(contentInset.bottom) > 0.5) {
+        contentInset.top = 0.0;
+        contentInset.bottom = 0.0;
+        self.contentInset = contentInset;
+    }
+
+    if (frameChanged) {
+        for (UITableViewCell *cell in self.visibleCells) {
+            [cell setNeedsLayout];
+        }
+    }
+}
+
+%end
+
 %hook AWEAwemeDetailTableViewCell
 
 - (BOOL)playerNotCoverBottomBarEnable {
     if (DYYYGetBool(@"DYYYEnableFullScreen") &&
-        DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
         (self.homepageUser != nil || [DYYYUtils isProfileVideoDetailContext:self]) &&
         ![DYYYUtils isCommentPanelPresentedInContext:self]) {
         return NO;
@@ -8448,38 +8609,17 @@ static Class TagViewClass = nil;
     return %orig;
 }
 
-- (void)adjustVideoFrameIfNeededWithPanelType:(NSUInteger)panelType {
-    %orig(panelType);
+%end
 
-    if (!DYYYGetBool(@"DYYYEnableFullScreen") ||
-        !DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) ||
-        (self.homepageUser == nil && ![DYYYUtils isProfileVideoDetailContext:self]) ||
-        [DYYYUtils isCommentPanelPresentedInContext:self]) {
-        return;
-    }
+%hook AWEFeedGeneralViewCell
 
-    id viewController = self.viewController;
-    if (![viewController respondsToSelector:@selector(setPlayerViewFrame:clipsToBounds:)]) {
-        return;
+- (BOOL)playerNotCoverBottomBarEnable {
+    if (DYYYGetBool(@"DYYYEnableFullScreen") &&
+        (self.homepageUser != nil || [DYYYUtils isProfileVideoDetailContext:self]) &&
+        ![DYYYUtils isCommentPanelPresentedInContext:self]) {
+        return NO;
     }
-
-    UIView *playerView = nil;
-    if ([viewController respondsToSelector:@selector(videoController)]) {
-        id videoController = [viewController valueForKey:@"videoController"];
-        if ([videoController isKindOfClass:[UIViewController class]]) {
-            playerView = [(UIViewController *)videoController view];
-        } else if ([videoController isKindOfClass:[UIView class]]) {
-            playerView = videoController;
-        }
-    }
-
-    CGRect fullScreenFrame = [DYYYUtils fullScreenRectForView:playerView ?: self];
-    if (CGRectIsNull(fullScreenFrame) ||
-        CGRectGetHeight(fullScreenFrame) <= CGRectGetWidth(fullScreenFrame) ||
-        CGRectGetWidth(fullScreenFrame) + 0.5 < [UIScreen mainScreen].bounds.size.width) {
-        return;
-    }
-    [viewController setPlayerViewFrame:fullScreenFrame clipsToBounds:YES];
+    return %orig;
 }
 
 %end
@@ -8497,8 +8637,12 @@ static Class TagViewClass = nil;
         CGRect screenBounds = [UIScreen mainScreen].bounds;
         CGFloat width = CGRectGetWidth(self.bounds);
         CGFloat height = CGRectGetHeight(self.bounds);
+        BOOL isProfileDetail = [DYYYUtils isProfileVideoDetailContext:self];
+        BOOL hasFullWidthPortraitCanvas = width + 0.5 >= CGRectGetWidth(screenBounds) &&
+                                          (isProfileDetail ||
+                                           height >= CGRectGetHeight(screenBounds) * 0.75);
 
-        if (width + 0.5 >= CGRectGetWidth(screenBounds) && height >= CGRectGetHeight(screenBounds) * 0.85) {
+        if (hasFullWidthPortraitCanvas) {
             UIViewController *controller = [DYYYUtils firstAvailableViewControllerFromView:self];
             for (NSInteger depth = 0; controller && depth < 6; depth++) {
                 BOOL isPlaybackController = [controller isKindOfClass:%c(AWEPlayVideoViewController)] ||
@@ -8522,22 +8666,15 @@ static Class TagViewClass = nil;
         if (!savedScaleType) {
             objc_setAssociatedObject(self, &kDYYYOriginalScaleTypeKey, @(self.scaleType), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
-        if (self.scaleType != 0) {
-            [self setScaleType:0];
-            [self updateVideoFrame];
+        if (self.scaleType != 1) {
+            [self setScaleType:1];
         }
     } else if (savedScaleType) {
         NSInteger originalScaleType = savedScaleType.integerValue;
         if (self.scaleType != originalScaleType) {
             [self setScaleType:originalScaleType];
-            [self updateVideoFrame];
         }
         objc_setAssociatedObject(self, &kDYYYOriginalScaleTypeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-
-    UIView *parent = self.superview;
-    if (parent) {
-        parent.backgroundColor = self.backgroundColor;
     }
 }
 
@@ -8546,7 +8683,7 @@ static Class TagViewClass = nil;
 %hook AWEAwemeDetailTableViewController
 
 - (CGFloat)tableViewBottomInsetForAllPlatform {
-    if (DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+    if (DYYYGetBool(@"DYYYEnableFullScreen") &&
         [DYYYUtils isProfileVideoDetailContext:self]) {
         return 0.0;
     }
@@ -8554,7 +8691,7 @@ static Class TagViewClass = nil;
 }
 
 - (CGFloat)tableViewBottomInsetForAllPlatform:(id)context {
-    if (DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+    if (DYYYGetBool(@"DYYYEnableFullScreen") &&
         [DYYYUtils isProfileVideoDetailContext:self]) {
         return 0.0;
     }
@@ -8562,7 +8699,7 @@ static Class TagViewClass = nil;
 }
 
 - (CGFloat)baseTableViewBottomInset {
-    if (DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+    if (DYYYGetBool(@"DYYYEnableFullScreen") &&
         [DYYYUtils isProfileVideoDetailContext:self]) {
         return 0.0;
     }
@@ -8572,7 +8709,7 @@ static Class TagViewClass = nil;
 - (void)viewDidLayoutSubviews {
     %orig;
 
-    if (DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+    if (DYYYGetBool(@"DYYYEnableFullScreen") &&
         [DYYYUtils isProfileVideoDetailContext:self]) {
         self.view.backgroundColor = [UIColor clearColor];
         self.view.opaque = NO;
@@ -8596,7 +8733,7 @@ static Class TagViewClass = nil;
 
 - (void)changeVideoWhenShowPanel:(BOOL)show {
     if (show &&
-        DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) &&
+        DYYYGetBool(@"DYYYEnableFullScreen") &&
         [DYYYUtils isProfileVideoDetailContext:self]) {
         [self setInteractionPanelManagerOwnsVideoScale:YES];
     }
@@ -8606,7 +8743,7 @@ static Class TagViewClass = nil;
 - (void)viewDidLayoutSubviews {
     %orig;
 
-    if (!DYYYGetBool(DYYY_PROFILE_DETAIL_HIDE_BOTTOM_BG_KEY) ||
+    if (!DYYYGetBool(@"DYYYEnableFullScreen") ||
         ![DYYYUtils isProfileVideoDetailContext:self]) {
         return;
     }

@@ -431,10 +431,11 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @interface AWEFeedTableViewController : UIViewController
 @end
 
-@interface AWEFeedTableView : UIView
+@interface AWEFeedTableView : UITableView
 @end
 
 @interface AWEAwemeDetailTableView : UITableView
+@property(nonatomic, strong) id containerVC;
 @end
 
 @interface AWECommentContainerViewController : UIViewController
@@ -456,16 +457,15 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @property(nonatomic, strong) id homepageUser;
 @property(nonatomic, strong) id parentVC;
 @property(nonatomic, strong) id previousPage;
-@property(nonatomic, strong) id viewController;
 @property(nonatomic, assign) BOOL isInDetailFeed;
 - (BOOL)playerNotCoverBottomBarEnable;
-- (void)adjustVideoFrameIfNeededWithPanelType:(NSUInteger)panelType;
 @end
 
 @interface AWEFeedGeneralViewCell : UIView
 @property(nonatomic, copy) NSString *detailReferString;
 @property(nonatomic, copy) NSString *detailEnterFrom;
 @property(nonatomic, strong) id homepageUser;
+@property(nonatomic, strong) id viewController;
 @property(nonatomic, assign) BOOL isInDetailFeed;
 - (BOOL)playerNotCoverBottomBarEnable;
 @end

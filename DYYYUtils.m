@@ -34,8 +34,6 @@ static const NSTimeInterval kDYYYUtilsDefaultFrameDelay = 0.1f;
 static const NSInteger kDYYYCommentPanelBlurTag = 0xD99901;
 static const NSInteger kDYYYCommentPanelBlurTintTag = 0xD99902;
 static const unsigned long long kDYYYRuntimeLogMaxBytes = 2 * 1024 * 1024;
-static char kDYYYCommentBackdropHiddenStateKey;
-static char kDYYYCommentBackdropInteractionStateKey;
 
 static NSString *DYYYRuntimeLogFilePath(void) {
     static NSString *logPath = nil;
@@ -383,12 +381,14 @@ static BOOL DYYYUtilsWriteStaticImageToGIF(UIImage *image, NSURL *gifURL) {
     return success;
 }
 
+static BOOL DYYYViewIsInsideCommentPanel(UIView *view);
+static BOOL DYYYColorIsDark(UIColor *color);
+
 @interface DYYYUtils ()
 + (NSString *)fallbackLocationFromIPAttribution:(AWEAwemeModel *)model;
 + (NSString *)displayLocationForGeoNamesError:(NSError *)error model:(AWEAwemeModel *)model;
 + (void)clearCommentPanelBackgroundForView:(UIView *)view;
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth;
-+ (void)clearCommentPanelPresentationArtifactsInViewController:(UIViewController *)viewController;
 + (void)clearCommentPanelObstructionBackgroundsInRootView:(UIView *)rootView
                                                keepingView:(UIView *)keepView;
 + (id)objectValueForIvarNamed:(NSString *)ivarName onObject:(id)object;
@@ -1224,14 +1224,16 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
 
     NSString *className = NSStringFromClass([view class]);
-    BOOL isCommentPanelListClass = [className containsString:@"AWECommentPanelListSwiftImpl"];
-    BOOL isCommentPanelText = isCommentPanelListClass &&
-                              ([className containsString:@"Label"] ||
-                               [className containsString:@"Fold"] ||
-                               [className containsString:@"VirtualView"] ||
-                               [className containsString:@"UserName"] ||
-                               [className containsString:@"Time"] ||
-                               [className containsString:@"Content"]);
+    BOOL isCommentPanelScopedClass = [className containsString:@"AWECommentPanelListSwiftImpl"];
+    BOOL isInsideCommentPanel = isCommentPanelScopedClass || DYYYViewIsInsideCommentPanel(view);
+    BOOL isCommentTextClass = [className containsString:@"Label"] ||
+                              [className containsString:@"Fold"] ||
+                              [className containsString:@"VirtualView"] ||
+                              [className containsString:@"UserName"] ||
+                              [className containsString:@"Time"] ||
+                              [className containsString:@"Content"] ||
+                              [className containsString:@"TextView"];
+    BOOL isCommentPanelText = isInsideCommentPanel && isCommentTextClass;
     BOOL isCommentInputSurface = [className containsString:@"AWEComment"] &&
                                  ([className containsString:@"InputBackgroundView"] ||
                                   [className containsString:@"CommentInputTextView"] ||
@@ -1242,20 +1244,58 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     return isCommentPanelText || isCommentInputSurface || isCommentBizLabel;
 }
 
-static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView *> *dimmingViews) {
-    if (!view || !dimmingViews) {
-        return;
+static BOOL DYYYViewIsInsideCommentPanel(UIView *view) {
+    UIView *current = view;
+    for (NSUInteger depth = 0; current && depth < 32; depth++) {
+        NSString *className = NSStringFromClass([current class]);
+        if ([className containsString:@"AWECommentPanelListSwiftImpl"] ||
+            [className containsString:@"AWECommentPanelContainerSwiftImpl"] ||
+            [className containsString:@"AWECommentContainerViewController"]) {
+            return YES;
+        }
+        current = current.superview;
+    }
+    return NO;
+}
+
+static BOOL DYYYColorIsDark(UIColor *color) {
+    if (![color isKindOfClass:[UIColor class]]) {
+        return NO;
     }
 
-    Class dimmingClass = NSClassFromString(@"AWEPageSheetPresentationDimmingView");
-    if ((dimmingClass && [view isKindOfClass:dimmingClass]) ||
-        [NSStringFromClass([view class]) isEqualToString:@"AWEPageSheetPresentationDimmingView"]) {
-        [dimmingViews addObject:view];
+    CGFloat red = 0.0;
+    CGFloat green = 0.0;
+    CGFloat blue = 0.0;
+    CGFloat alpha = 0.0;
+    if ([color getRed:&red green:&green blue:&blue alpha:&alpha]) {
+        if (alpha < 0.05) {
+            return NO;
+        }
+        CGFloat luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+        CGFloat chroma = MAX(red, MAX(green, blue)) - MIN(red, MIN(green, blue));
+        return luminance < 0.45 && chroma < 0.22;
     }
 
-    for (UIView *subview in view.subviews) {
-        DYYYCollectPageSheetDimmingViews(subview, dimmingViews);
+    CGColorRef colorRef = color.CGColor;
+    if (!colorRef) {
+        return NO;
     }
+    size_t componentCount = CGColorGetNumberOfComponents(colorRef);
+    const CGFloat *components = CGColorGetComponents(colorRef);
+    if (!components || componentCount < 2) {
+        return NO;
+    }
+
+    CGFloat luminance = 0.0;
+    CGFloat chroma = 0.0;
+    if (componentCount >= 3) {
+        luminance = 0.2126 * components[0] + 0.7152 * components[1] + 0.0722 * components[2];
+        chroma = MAX(components[0], MAX(components[1], components[2])) -
+                 MIN(components[0], MIN(components[1], components[2]));
+    } else {
+        luminance = components[0];
+    }
+    return luminance < 0.45 && chroma < 0.22;
 }
 
 + (NSAttributedString *)commentBlurCleanedAttributedText:(NSAttributedString *)attributedText forView:(UIView *)view {
@@ -1263,16 +1303,22 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
         return attributedText;
     }
 
-    __block BOOL hasBackgroundAttribute = NO;
+    __block BOOL needsCleanup = NO;
     [attributedText enumerateAttributesInRange:NSMakeRange(0, attributedText.length)
                                        options:0
                                     usingBlock:^(NSDictionary<NSAttributedStringKey, id> *attrs, NSRange range, BOOL *stop) {
                                       if (attrs[NSBackgroundColorAttributeName] || attrs[@"YYTextBorder"] || attrs[@"YYTextBorderArray"]) {
-                                          hasBackgroundAttribute = YES;
+                                          needsCleanup = YES;
+                                          *stop = YES;
+                                          return;
+                                      }
+                                      UIColor *foregroundColor = attrs[NSForegroundColorAttributeName];
+                                      if (DYYYColorIsDark(foregroundColor)) {
+                                          needsCleanup = YES;
                                           *stop = YES;
                                       }
                                     }];
-    if (!hasBackgroundAttribute) {
+    if (!needsCleanup) {
         return attributedText;
     }
 
@@ -1281,7 +1327,22 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
     [cleanedText removeAttribute:NSBackgroundColorAttributeName range:fullRange];
     [cleanedText removeAttribute:@"YYTextBorder" range:fullRange];
     [cleanedText removeAttribute:@"YYTextBorderArray" range:fullRange];
+
+    [cleanedText enumerateAttribute:NSForegroundColorAttributeName
+                            inRange:fullRange
+                            options:0
+                         usingBlock:^(id value, NSRange range, BOOL *stop) {
+                           if (DYYYColorIsDark(value)) {
+                               [cleanedText addAttribute:NSForegroundColorAttributeName
+                                                   value:[UIColor whiteColor]
+                                                   range:range];
+                           }
+                         }];
     return cleanedText;
+}
+
++ (UIColor *)commentBlurAdjustedTextColor:(UIColor *)textColor {
+    return DYYYColorIsDark(textColor) ? [UIColor whiteColor] : textColor;
 }
 
 + (void)applyCommentPanelBlurToRootViewController:(UIViewController *)rootViewController transparency:(float)userTransparency {
@@ -1290,7 +1351,6 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
     }
 
     UIView *rootView = rootViewController.view;
-    [self clearCommentPanelPresentationArtifactsInViewController:rootViewController];
 
     UIViewController *innerViewController = [self commentPanelInnerViewControllerForRootViewController:rootViewController];
     UIView *panelView = innerViewController.view;
@@ -1341,7 +1401,7 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
     }
 
     blurView.hidden = NO;
-    blurView.alpha = MAX(0.0, 1.0 - normalizedTransparency);
+    blurView.alpha = 1.0 - normalizedTransparency;
     blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     blurView.layer.cornerRadius = panelView.layer.cornerRadius;
     blurView.layer.maskedCorners = panelView.layer.maskedCorners;
@@ -1386,10 +1446,13 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
         return;
     }
 
+    rootView.opaque = NO;
+
     for (UIView *subview in rootView.subviews) {
         if (subview == keepView || subview.tag == kDYYYCommentPanelBlurTag) {
             continue;
         }
+
         [self clearCommentPanelBackgroundForView:subview];
         if ([subview isKindOfClass:[UIVisualEffectView class]]) {
             ((UIVisualEffectView *)subview).effect = nil;
@@ -1424,50 +1487,6 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
                                     inViewController:rootViewController];
 }
 
-+ (void)clearCommentPanelPresentationArtifactsInViewController:(UIViewController *)viewController {
-    if (!viewController || !viewController.view) {
-        return;
-    }
-
-    NSMutableArray<UIView *> *backdropViews = [NSMutableArray array];
-    id backgroundMaskView = [self objectValueForIvarNamed:@"$__lazy_storage_$_backgroundMaskView"
-                                                 onObject:viewController];
-    if (![backgroundMaskView isKindOfClass:[UIView class]]) {
-        backgroundMaskView = [self objectValueForIvarNamed:@"backgroundMaskView" onObject:viewController];
-    }
-    if ([backgroundMaskView isKindOfClass:[UIView class]]) {
-        [backdropViews addObject:backgroundMaskView];
-    }
-    UIViewController *innerViewController = [self commentPanelInnerViewControllerForRootViewController:viewController];
-    if (innerViewController && innerViewController != viewController) {
-        id innerMaskView = [self objectValueForIvarNamed:@"$__lazy_storage_$_backgroundMaskView"
-                                                onObject:innerViewController];
-        if (![innerMaskView isKindOfClass:[UIView class]]) {
-            innerMaskView = [self objectValueForIvarNamed:@"backgroundMaskView" onObject:innerViewController];
-        }
-        if ([innerMaskView isKindOfClass:[UIView class]] && ![backdropViews containsObject:innerMaskView]) {
-            [backdropViews addObject:innerMaskView];
-        }
-    }
-    UIView *dimmingSearchRoot = viewController.view.superview ?: viewController.view;
-    DYYYCollectPageSheetDimmingViews(dimmingSearchRoot, backdropViews);
-
-    for (UIView *backdropView in backdropViews) {
-        if (!objc_getAssociatedObject(backdropView, &kDYYYCommentBackdropHiddenStateKey)) {
-            objc_setAssociatedObject(backdropView,
-                                     &kDYYYCommentBackdropHiddenStateKey,
-                                     @(backdropView.hidden),
-                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            objc_setAssociatedObject(backdropView,
-                                     &kDYYYCommentBackdropInteractionStateKey,
-                                     @(backdropView.userInteractionEnabled),
-                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-        backdropView.hidden = YES;
-        backdropView.userInteractionEnabled = NO;
-    }
-}
-
 + (void)resetCommentPanelBlurForRootViewController:(UIViewController *)rootViewController {
     if (!rootViewController || !rootViewController.view) {
         return;
@@ -1481,41 +1500,6 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
         }
     }
 
-    NSMutableArray<UIView *> *backdropViews = [NSMutableArray array];
-    id backgroundMaskView = [self objectValueForIvarNamed:@"$__lazy_storage_$_backgroundMaskView"
-                                                 onObject:rootViewController];
-    if (![backgroundMaskView isKindOfClass:[UIView class]]) {
-        backgroundMaskView = [self objectValueForIvarNamed:@"backgroundMaskView" onObject:rootViewController];
-    }
-    if ([backgroundMaskView isKindOfClass:[UIView class]]) {
-        [backdropViews addObject:backgroundMaskView];
-    }
-    UIViewController *innerViewController = [self commentPanelInnerViewControllerForRootViewController:rootViewController];
-    if (innerViewController && innerViewController != rootViewController) {
-        id innerMaskView = [self objectValueForIvarNamed:@"$__lazy_storage_$_backgroundMaskView"
-                                                onObject:innerViewController];
-        if (![innerMaskView isKindOfClass:[UIView class]]) {
-            innerMaskView = [self objectValueForIvarNamed:@"backgroundMaskView" onObject:innerViewController];
-        }
-        if ([innerMaskView isKindOfClass:[UIView class]] && ![backdropViews containsObject:innerMaskView]) {
-            [backdropViews addObject:innerMaskView];
-        }
-    }
-    UIView *dimmingSearchRoot = rootView.superview ?: rootView;
-    DYYYCollectPageSheetDimmingViews(dimmingSearchRoot, backdropViews);
-
-    for (UIView *backdropView in backdropViews) {
-        NSNumber *hiddenState = objc_getAssociatedObject(backdropView, &kDYYYCommentBackdropHiddenStateKey);
-        NSNumber *interactionState = objc_getAssociatedObject(backdropView, &kDYYYCommentBackdropInteractionStateKey);
-        if (hiddenState) {
-            backdropView.hidden = hiddenState.boolValue;
-        }
-        if (interactionState) {
-            backdropView.userInteractionEnabled = interactionState.boolValue;
-        }
-        objc_setAssociatedObject(backdropView, &kDYYYCommentBackdropHiddenStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(backdropView, &kDYYYCommentBackdropInteractionStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
 }
 
 + (UIViewController *)findViewControllerWithClassNameToken:(NSString *)classNameToken
@@ -1563,7 +1547,7 @@ static void DYYYCollectPageSheetDimmingViews(UIView *view, NSMutableArray<UIView
 }
 
 + (void)clearCommentBlurBackgroundsInView:(UIView *)view depth:(NSUInteger)depth {
-    if (!view || depth > 20) {
+    if (!view || depth > 64) {
         return;
     }
 

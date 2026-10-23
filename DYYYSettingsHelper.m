@@ -22,9 +22,14 @@
     if ([key isEqualToString:DYYY_COMMENT_BLUR_TRANSPARENCY_PERCENT_KEY] ||
         [key isEqualToString:DYYY_COMMENT_BLUR_TRANSPARENCY_LEGACY_KEY] ||
         [key isEqualToString:@"DYYYEnableCommentBlur"]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        void (^notifyCommentBlurChanged)(void) = ^{
           [[NSNotificationCenter defaultCenter] postNotificationName:DYYY_COMMENT_BLUR_TRANSPARENCY_DID_CHANGE_NOTIFICATION object:nil];
-        });
+        };
+        if ([NSThread isMainThread]) {
+            notifyCommentBlurChanged();
+        } else {
+            dispatch_async(dispatch_get_main_queue(), notifyCommentBlurChanged);
+        }
     }
 }
 
